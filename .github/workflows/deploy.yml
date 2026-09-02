@@ -67,5 +67,8 @@ jobs:
       - name: Verify AWS identity
         run: aws sts get-caller-identity --region us-east-1
 
+      - name: Build CDK app
+        run: npm run precdk
+
       - name: Deploy Stacks
-        run: npm run cdk:deploy
+        run: npx cdk deploy --all --require-approval never --app "node build/bin/app.js"
