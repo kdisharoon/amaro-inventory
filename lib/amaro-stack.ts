@@ -28,7 +28,7 @@ export class AmaroStack extends cdk.Stack {
     const amaroLambda = new lambdaNodejs.NodejsFunction(this, 'AmaroHandlerConstruct', {
       functionName: 'AmaroHandler',
       runtime: lambda.Runtime.NODEJS_20_X,
-      entry: path.join(__dirname, '../src/lambda/amaroHandler.ts'),
+      entry: path.join(process.cwd(), 'src', 'lambda', 'amaroHandler.ts'),
       handler: 'handler',
       environment: {
         TABLE_NAME: amaroTable.tableName,
