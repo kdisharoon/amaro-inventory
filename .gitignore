@@ -8,6 +8,11 @@ dist/
 # Env files
 .env.local
 
+# Build artifacts and compiled JS
+cdk.out/
+**/*.js
+**/*.js.map
+
 # OS
 .DS_Store
 Thumbs.db

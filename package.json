@@ -7,9 +7,9 @@
     "dev": "vite",
     "build": "vue-tsc && vite build",
     "preview": "vite preview",
-    "cdk": "cdk",
-    "cdk:synth": "cdk synth",
-    "cdk:deploy": "cdk deploy --all"
+    "cdk": "cdk --app \"node --loader ts-node/esm ./bin/app.ts\"",
+    "cdk:synth": "cdk synth --app \"node --loader ts-node/esm ./bin/app.ts\"",
+    "cdk:deploy": "cdk deploy --app \"node --loader ts-node/esm ./bin/app.ts\" --all"
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.1124.0",
@@ -26,6 +26,7 @@
     "@vitejs/plugin-vue": "^6.0.8",
     "esbuild": "^0.28.2",
     "source-map-support": "^0.5.21",
+    "ts-node": "^10.9.2",
     "typescript": "^5.9.3",
     "vite": "^8.2.2",
     "vue-tsc": "^3.3.11"

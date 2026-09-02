@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import 'source-map-support/register.js';
 import * as cdk from 'aws-cdk-lib';
-import { AmaroStack } from '../lib/amaro-stack.js';
+import { AmaroStack } from '../lib/amaro-stack';
 const app = new cdk.App();
 const env = {
     account: process.env.CDK_DEFAULT_ACCOUNT,
