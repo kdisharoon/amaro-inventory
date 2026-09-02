@@ -29,6 +29,10 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Build CDK app
+        # runs the same pre-build as your package.json "precdk" script
+        run: npm run precdk
+
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -37,7 +41,8 @@ jobs:
           aws-region: ${{ secrets.AWS_REGION }}
 
       - name: Run CDK Diff
-        run: npx cdk diff
+        # point CDK at the built app
+        run: npx cdk diff --app "node build/bin/app.js"
 
   cdk-deploy:
     name: CDK Deploy
