@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# Prevent committing any .js or .js.map files into the repo
+STAGED=$(git diff --cached --name-only)
+for FILE in $STAGED; do
+  case "$FILE" in
+    *.js|*.js.map)
+      echo "ERROR: Committing compiled JS files is disallowed: $FILE"
+      echo "Unstage the file or add an exception to .gitignore if intentional."
+      exit 1
+      ;;
+  esac
+done
+exit 0

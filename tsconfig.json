@@ -6,6 +6,8 @@
     "lib": ["ESNext", "DOM", "DOM.Iterable"],
     "jsx": "preserve",
     "strict": true,
+    "noEmit": true,
+    "compileOnSave": false,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,

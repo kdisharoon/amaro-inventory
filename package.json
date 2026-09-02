@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vue-tsc && vite build",
     "preview": "vite preview",
-    "precdk": "tsc -p tsconfig.json --outDir build",
+    "precdk": "tsc -p tsconfig.build.json",
     "cdk": "npm run precdk && cdk --app \"node build/bin/app.js\"",
     "cdk:synth": "npm run precdk && cdk synth --app \"node build/bin/app.js\"",
     "cdk:deploy": "npm run precdk && cdk deploy --app \"node build/bin/app.js\" --all"
