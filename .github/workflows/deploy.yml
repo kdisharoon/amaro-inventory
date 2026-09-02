@@ -68,4 +68,4 @@ jobs:
         run: aws sts get-caller-identity --region us-east-1
 
       - name: Deploy Stacks
-        run: npx cdk deploy --all --require-approval never
+        run: npm run cdk:deploy
