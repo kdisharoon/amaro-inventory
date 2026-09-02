@@ -1,0 +1,41 @@
+{
+  "version": "54.0.0",
+  "title": "Validation Report",
+  "pluginReports": [
+    {
+      "pluginName": "CloudFormation Validate",
+      "pluginVersion": "1.7.0",
+      "conclusion": "success",
+      "violations": [
+        {
+          "ruleName": "W2531",
+          "description": "Runtime: Runtime 'nodejs20.x' was deprecated on '2026-04-30'. Creation was disabled on '2027-02-01' and update on '2027-03-03'. Please consider updating to 'nodejs24.x'",
+          "severity": "warning",
+          "ruleMetadata": {
+            "category": "Deprecation"
+          },
+          "violatingConstructs": [
+            {
+              "constructPath": "AmaroStack/AmaroHandlerConstruct/Resource",
+              "constructFqn": "aws-cdk-lib.aws_lambda.CfnFunction",
+              "libraryVersion": "2.267.0",
+              "cloudFormationResource": {
+                "templatePath": "AmaroStack.template.json",
+                "logicalId": "AmaroHandlerConstruct61CD6197",
+                "propertyPaths": [
+                  "Properties.Runtime"
+                ]
+              },
+              "stackTraces": [
+                "...new NodejsFunction in aws-cdk-lib...",
+                "new AmaroStack (file:///C:/Users/kdish/OneDrive/Desktop/git/amaro-inventory/lib/amaro-stack.js:24:29)",
+                "file:///C:/Users/kdish/OneDrive/Desktop/git/amaro-inventory/bin/app.js:10 (:)",
+                "...node internals..."
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
