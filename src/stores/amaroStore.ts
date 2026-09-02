@@ -1,4 +1,4 @@
-﻿import { defineStore } from 'pinia';
+import { defineStore } from 'pinia';
 import { AmaroBottle, CreateAmaroBottlePayload } from '../types/amaro';
 import { amaroApiClient } from '../api/amaroClient';
 
@@ -21,9 +21,6 @@ export const useAmaroStore = defineStore('amaro', {
   }),
 
   getters: {
-    /**
-     * Returns filtered list of bottles based on search query, max ABV, and sweetness level.
-     */
     filteredBottles(state): AmaroBottle[] {
       return state.bottles.filter((bottle) => {
         // Search filter (matches name, producer, region, or flavor notes)
@@ -58,16 +55,10 @@ export const useAmaroStore = defineStore('amaro', {
       });
     },
 
-    /**
-     * Total count of bottles in catalog.
-     */
     totalBottlesCount(state): number {
       return state.bottles.length;
     },
 
-    /**
-     * Returns a list of unique regions present in the current catalog.
-     */
     availableRegions(state): string[] {
       const regions = state.bottles.map((b) => b.region);
       return Array.from(new Set(regions)).sort();
@@ -75,9 +66,6 @@ export const useAmaroStore = defineStore('amaro', {
   },
 
   actions: {
-    /**
-     * Fetches all bottles from the API Gateway endpoint.
-     */
     async fetchBottles(): Promise<void> {
       this.isLoading = true;
       this.error = null;
@@ -91,9 +79,6 @@ export const useAmaroStore = defineStore('amaro', {
       }
     },
 
-    /**
-     * Adds a new amaro bottle to the catalog.
-     */
     async addBottle(payload: CreateAmaroBottlePayload): Promise<AmaroBottle | null> {
       this.isLoading = true;
       this.error = null;
@@ -110,16 +95,10 @@ export const useAmaroStore = defineStore('amaro', {
       }
     },
 
-    /**
-     * Updates search & filter criteria.
-     */
     setFilters(partialFilters: Partial<AmaroFilterState>): void {
       this.filters = { ...this.filters, ...partialFilters };
     },
 
-    /**
-     * Resets all search filters.
-     */
     resetFilters(): void {
       this.filters = {
         searchQuery: '',
