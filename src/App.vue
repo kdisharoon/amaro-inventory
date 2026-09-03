@@ -12,7 +12,10 @@ const signedInEmail = ref<string | null>(localStorage.getItem('amaro_google_emai
 const showGoogleFallbackButton = ref(false);
 const authMessage = ref('');
 
-const googleClientId = window.__APP_CONFIG__?.GOOGLE_CLIENT_ID || '';
+const googleClientId =
+  window.__APP_CONFIG__?.GOOGLE_CLIENT_ID ||
+  import.meta.env.VITE_GOOGLE_CLIENT_ID ||
+  '';
 let googleInitialized = false;
 
 const decodeJwtPayload = (token: string): Record<string, any> | null => {
@@ -101,7 +104,7 @@ const handleAddBottleClick = () => {
   }
 
   if (!googleClientId) {
-    authMessage.value = 'Google sign-in is not configured.';
+    authMessage.value = 'Google sign-in is not configured. Set GOOGLE_CLIENT_ID in deployment configuration.';
     return;
   }
 
