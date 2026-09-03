@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { onMounted, ref } from 'vue';
 import { useAmaroStore } from './stores/amaroStore';
 import AmaroFilterBar from './components/AmaroFilterBar.vue';
 import AmaroCard from './components/AmaroCard.vue';
@@ -9,14 +9,11 @@ const amaroStore = useAmaroStore();
 const showAddForm = ref(false);
 const idToken = ref<string | null>(localStorage.getItem('amaro_google_id_token'));
 const signedInEmail = ref<string | null>(localStorage.getItem('amaro_google_email'));
+const showGoogleFallbackButton = ref(false);
+const authMessage = ref('');
 
 const googleClientId = window.__APP_CONFIG__?.GOOGLE_CLIENT_ID || '';
-const adminEmail = (window.__APP_CONFIG__?.ADMIN_EMAIL || '').toLowerCase();
-
-const isAuthorized = computed(() => {
-  if (!adminEmail || !signedInEmail.value) return false;
-  return signedInEmail.value.toLowerCase() === adminEmail;
-});
+let googleInitialized = false;
 
 const decodeJwtPayload = (token: string): Record<string, any> | null => {
   try {
@@ -43,17 +40,27 @@ const handleGoogleCredential = (response: { credential?: string }) => {
 
   idToken.value = response.credential;
   signedInEmail.value = email;
+  showGoogleFallbackButton.value = false;
+  authMessage.value = '';
+  showAddForm.value = true;
   localStorage.setItem('amaro_google_id_token', response.credential);
   localStorage.setItem('amaro_google_email', email);
 };
 
-const renderGoogleButton = () => {
-  if (!window.google || !googleClientId) return;
+const initializeGoogleIdentity = () => {
+  if (googleInitialized || !window.google || !googleClientId) return;
 
   window.google.accounts.id.initialize({
     client_id: googleClientId,
     callback: handleGoogleCredential,
   });
+
+  googleInitialized = true;
+};
+
+const renderGoogleButton = () => {
+  if (!window.google || !googleClientId) return;
+  initializeGoogleIdentity();
 
   const target = document.getElementById('google-signin-button');
   if (target) {
@@ -72,7 +79,7 @@ const waitForGoogleAndRender = () => {
     attempts += 1;
     if (window.google && googleClientId) {
       window.clearInterval(timer);
-      renderGoogleButton();
+      initializeGoogleIdentity();
     }
     if (attempts > 25) {
       window.clearInterval(timer);
@@ -80,10 +87,45 @@ const waitForGoogleAndRender = () => {
   }, 200);
 };
 
+const handleAddBottleClick = () => {
+  authMessage.value = '';
+
+  if (showAddForm.value) {
+    showAddForm.value = false;
+    return;
+  }
+
+  if (idToken.value) {
+    showAddForm.value = true;
+    return;
+  }
+
+  if (!googleClientId) {
+    authMessage.value = 'Google sign-in is not configured.';
+    return;
+  }
+
+  if (!window.google) {
+    authMessage.value = 'Google sign-in is still loading. Please try again.';
+    return;
+  }
+
+  initializeGoogleIdentity();
+  window.google.accounts.id.prompt((notification: any) => {
+    if (notification?.isNotDisplayed?.() || notification?.isSkippedMoment?.()) {
+      showGoogleFallbackButton.value = true;
+      authMessage.value = 'Continue with Google to add a bottle.';
+      renderGoogleButton();
+    }
+  });
+};
+
 const signOut = () => {
   idToken.value = null;
   signedInEmail.value = null;
   showAddForm.value = false;
+  showGoogleFallbackButton.value = false;
+  authMessage.value = '';
   localStorage.removeItem('amaro_google_id_token');
   localStorage.removeItem('amaro_google_email');
   window.google?.accounts?.id?.disableAutoSelect?.();
@@ -111,29 +153,19 @@ onMounted(() => {
 
     <main class="app-main">
       <section class="auth-panel">
-        <div class="auth-copy">
-          <h2>Add Bottle</h2>
-          <p v-if="adminEmail">Only <strong>{{ adminEmail }}</strong> can add bottles.</p>
-          <p v-else>Admin account is not configured yet.</p>
-        </div>
-
         <div class="auth-actions">
-          <template v-if="!idToken">
-            <div id="google-signin-button"></div>
-          </template>
-
-          <template v-else>
-            <p class="signed-in-as">Signed in as <strong>{{ signedInEmail }}</strong></p>
-            <button class="toggle-add-btn" @click="showAddForm = !showAddForm" :disabled="!isAuthorized">
-              {{ showAddForm ? 'Hide Add Form' : 'Add Bottle' }}
-            </button>
-            <button class="signout-btn" @click="signOut">Sign out</button>
-            <p v-if="!isAuthorized" class="unauthorized-note">This account is not authorized to add bottles.</p>
-          </template>
+          <button class="toggle-add-btn" @click="handleAddBottleClick">
+            {{ showAddForm ? 'Hide Add Form' : 'Add Bottle' }}
+          </button>
+          <p v-if="idToken && signedInEmail" class="signed-in-as">Signed in as <strong>{{ signedInEmail }}</strong></p>
+          <button v-if="idToken" class="signout-btn" @click="signOut">Sign out</button>
         </div>
+
+        <div v-if="showGoogleFallbackButton" id="google-signin-button"></div>
+        <p v-if="authMessage" class="auth-message">{{ authMessage }}</p>
       </section>
 
-      <AmaroForm v-if="showAddForm && isAuthorized" :id-token="idToken" />
+      <AmaroForm v-if="showAddForm" :id-token="idToken" />
 
       <AmaroFilterBar />
 
@@ -210,23 +242,13 @@ onMounted(() => {
 
 .auth-panel {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
+  flex-direction: column;
+  align-items: flex-start;
   gap: 1rem;
   padding: 1rem;
   border: 1px solid #e2e8f0;
   border-radius: 10px;
   background: #f8fafc;
-}
-
-.auth-copy h2 {
-  margin: 0;
-  font-size: 1.125rem;
-}
-
-.auth-copy p {
-  margin: 0.25rem 0 0;
-  color: #64748b;
 }
 
 .auth-actions {
@@ -256,19 +278,14 @@ onMounted(() => {
   color: #fff;
 }
 
-.toggle-add-btn:disabled {
-  background: #94a3b8;
-  cursor: not-allowed;
-}
-
 .signout-btn {
   background: #e2e8f0;
   color: #1f2937;
 }
 
-.unauthorized-note {
+.auth-message {
   margin: 0;
-  color: #b91c1c;
+  color: #475569;
   font-size: 0.85rem;
 }
 

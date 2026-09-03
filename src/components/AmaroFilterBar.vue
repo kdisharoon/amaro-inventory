@@ -13,10 +13,6 @@ const onAbvChange = (e: Event) => {
   const val = target.value ? Number(target.value) : null;
   amaroStore.setFilters({ maxAbv: val });
 };
-
-const onSweetnessChange = (level: 'all' | 'dry' | 'semi-sweet' | 'sweet') => {
-  amaroStore.setFilters({ sweetnessLevel: level });
-};
 </script>
 
 <template>
@@ -48,35 +44,6 @@ const onSweetnessChange = (level: 'all' | 'dry' | 'semi-sweet' | 'sweet') => {
         </select>
       </div>
 
-      <div class="filter-group sweetness-group">
-        <span class="filter-label">Sweetness:</span>
-        <div class="button-toggle-group">
-          <button
-            :class="['toggle-btn', { active: amaroStore.filters.sweetnessLevel === 'all' }]"
-            @click="onSweetnessChange('all')"
-          >
-            All
-          </button>
-          <button
-            :class="['toggle-btn', { active: amaroStore.filters.sweetnessLevel === 'dry' }]"
-            @click="onSweetnessChange('dry')"
-          >
-            Dry
-          </button>
-          <button
-            :class="['toggle-btn', { active: amaroStore.filters.sweetnessLevel === 'semi-sweet' }]"
-            @click="onSweetnessChange('semi-sweet')"
-          >
-            Semi-Sweet
-          </button>
-          <button
-            :class="['toggle-btn', { active: amaroStore.filters.sweetnessLevel === 'sweet' }]"
-            @click="onSweetnessChange('sweet')"
-          >
-            Sweet
-          </button>
-        </div>
-      </div>
     </div>
   </div>
 </template>
@@ -124,10 +91,6 @@ const onSweetnessChange = (level: 'all' | 'dry' | 'semi-sweet' | 'sweet') => {
   color: #4a5568;
 }
 
-.filter-label {
-  font-weight: 500;
-}
-
 .select-input {
   padding: 0.4rem 0.75rem;
   border: 1px solid #cbd5e0;
@@ -135,37 +98,5 @@ const onSweetnessChange = (level: 'all' | 'dry' | 'semi-sweet' | 'sweet') => {
   background-color: #ffffff;
   font-size: 0.875rem;
   color: #2d3748;
-}
-
-.button-toggle-group {
-  display: flex;
-  border: 1px solid #cbd5e0;
-  border-radius: 6px;
-  overflow: hidden;
-}
-
-.toggle-btn {
-  background-color: #ffffff;
-  border: none;
-  padding: 0.4rem 0.75rem;
-  font-size: 0.8rem;
-  color: #4a5568;
-  cursor: pointer;
-  border-right: 1px solid #cbd5e0;
-  transition: background-color 0.15s ease, color 0.15s ease;
-}
-
-.toggle-btn:last-child {
-  border-right: none;
-}
-
-.toggle-btn:hover {
-  background-color: #edf2f7;
-}
-
-.toggle-btn.active {
-  background-color: #3182ce;
-  color: #ffffff;
-  font-weight: 600;
 }
 </style>

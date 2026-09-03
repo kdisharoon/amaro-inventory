@@ -5,7 +5,6 @@ import { amaroApiClient } from '../api/amaroClient';
 export interface AmaroFilterState {
   searchQuery: string;
   maxAbv: number | null;
-  sweetnessLevel: 'all' | 'dry' | 'semi-sweet' | 'sweet';
 }
 
 export const useAmaroStore = defineStore('amaro', {
@@ -16,7 +15,6 @@ export const useAmaroStore = defineStore('amaro', {
     filters: {
       searchQuery: '',
       maxAbv: null,
-      sweetnessLevel: 'all',
     } as AmaroFilterState,
   }),
 
@@ -40,14 +38,6 @@ export const useAmaroStore = defineStore('amaro', {
 
         // ABV Filter
         if (state.filters.maxAbv !== null && bottle.abv > state.filters.maxAbv) {
-          return false;
-        }
-
-        // Sweetness Level Filter
-        if (
-          state.filters.sweetnessLevel !== 'all' &&
-          bottle.sweetnessLevel !== state.filters.sweetnessLevel
-        ) {
           return false;
         }
 
@@ -103,7 +93,6 @@ export const useAmaroStore = defineStore('amaro', {
       this.filters = {
         searchQuery: '',
         maxAbv: null,
-        sweetnessLevel: 'all',
       };
     },
   },
