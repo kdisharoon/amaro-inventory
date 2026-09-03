@@ -14,6 +14,16 @@ const formatSweetness = (level?: string): string => {
     default: return level;
   }
 };
+
+const formatStatus = (status?: string): string => {
+  if (!status) return 'Unknown';
+  switch (status) {
+    case 'unopened': return 'Not Opened';
+    case 'opened': return 'Opened';
+    case 'finished': return 'Finished';
+    default: return status;
+  }
+};
 </script>
 
 <template>
@@ -31,6 +41,10 @@ const formatSweetness = (level?: string): string => {
     <div class="meta-row">
       <span v-if="bottle.sweetnessLevel" :class="['sweetness-badge', bottle.sweetnessLevel]">
         {{ formatSweetness(bottle.sweetnessLevel) }}
+      </span>
+
+      <span class="status-badge" :class="bottle.status || 'unknown'">
+        {{ formatStatus(bottle.status) }}
       </span>
 
       <span v-if="bottle.rating" class="rating">
@@ -143,6 +157,35 @@ const formatSweetness = (level?: string): string => {
   font-size: 0.85rem;
   font-weight: 600;
   color: #d69e2e;
+}
+
+.status-badge {
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.2rem 0.6rem;
+  border-radius: 9999px;
+  text-transform: uppercase;
+  letter-spacing: 0.025em;
+}
+
+.status-badge.unopened {
+  background-color: #e6fffa;
+  color: #234e52;
+}
+
+.status-badge.opened {
+  background-color: #fef3c7;
+  color: #7c2d12;
+}
+
+.status-badge.finished {
+  background-color: #e2e8f0;
+  color: #1f2937;
+}
+
+.status-badge.unknown {
+  background-color: #edf2f7;
+  color: #4a5568;
 }
 
 .flavor-notes {

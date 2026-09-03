@@ -17,7 +17,6 @@
     "@aws-sdk/lib-dynamodb": "^3.1124.0",
     "aws-cdk-lib": "^2.267.0",
     "constructs": "^10.8.1",
-    "gh": "^2.8.9",
     "pinia": "^4.0.3",
     "vue": "^3.5.42"
   },

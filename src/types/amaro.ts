@@ -7,6 +7,7 @@ export interface AmaroBottle {
   description: string;
   flavorNotes: string[];
   sweetnessLevel: 'bone-dry' | 'dry' | 'semi-sweet' | 'sweet';
+  status: 'unopened' | 'opened' | 'finished';
   rating?: number;
   dateAdded: string;
 }

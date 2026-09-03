@@ -16,9 +16,52 @@ export interface AmaroItem {
   description: string;
   flavorNotes: string[];
   sweetnessLevel: 'bone-dry' | 'dry' | 'semi-sweet' | 'sweet';
+  status: 'unopened' | 'opened' | 'finished';
   rating?: number;
   dateAdded: string;
 }
+
+interface GoogleTokenInfo {
+  aud: string;
+  email: string;
+  email_verified: string;
+  exp: string;
+}
+
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
+const ADMIN_GOOGLE_EMAIL = (process.env.ADMIN_GOOGLE_EMAIL || 'kdisharoon@gmail.com').toLowerCase();
+
+const extractBearerToken = (headers: APIGatewayProxyEvent['headers']): string | null => {
+  const authHeader = headers.Authorization || headers.authorization;
+  if (!authHeader) return null;
+  const match = authHeader.match(/^Bearer\s+(.+)$/i);
+  return match?.[1] || null;
+};
+
+const isAuthorizedAdmin = async (idToken: string): Promise<boolean> => {
+  if (!GOOGLE_CLIENT_ID || !ADMIN_GOOGLE_EMAIL) {
+    console.error('GOOGLE_CLIENT_ID and ADMIN_GOOGLE_EMAIL must be configured');
+    return false;
+  }
+
+  const tokenInfoUrl = `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(idToken)}`;
+  const response = await fetch(tokenInfoUrl);
+  if (!response.ok) {
+    console.error('Failed tokeninfo lookup', response.status);
+    return false;
+  }
+
+  const tokenInfo = (await response.json()) as GoogleTokenInfo;
+  const nowEpochSeconds = Math.floor(Date.now() / 1000);
+  const tokenExp = Number(tokenInfo.exp || '0');
+
+  return (
+    tokenInfo.aud === GOOGLE_CLIENT_ID &&
+    tokenInfo.email_verified === 'true' &&
+    tokenExp > nowEpochSeconds &&
+    tokenInfo.email?.toLowerCase() === ADMIN_GOOGLE_EMAIL
+  );
+};
 
 const corsHeaders = {
   'Content-Type': 'application/json',
@@ -72,6 +115,24 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
 
     // POST /amaros - Create or update an amaro bottle
     if (httpMethod === 'POST') {
+      const idToken = extractBearerToken(event.headers);
+      if (!idToken) {
+        return {
+          statusCode: 401,
+          headers: corsHeaders,
+          body: JSON.stringify({ message: 'Missing bearer token.' }),
+        };
+      }
+
+      const authorized = await isAuthorizedAdmin(idToken);
+      if (!authorized) {
+        return {
+          statusCode: 403,
+          headers: corsHeaders,
+          body: JSON.stringify({ message: 'Forbidden. This account is not authorized to add bottles.' }),
+        };
+      }
+
       if (!event.body) {
         return {
           statusCode: 400,
@@ -101,6 +162,7 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
         description: body.description || '',
         flavorNotes: Array.isArray(body.flavorNotes) ? body.flavorNotes : [],
         sweetnessLevel: body.sweetnessLevel || 'semi-sweet',
+        status: body.status || 'unopened',
         rating: body.rating ?? 0,
         dateAdded: body.dateAdded || new Date().toISOString(),
       };

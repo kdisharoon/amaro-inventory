@@ -29,8 +29,10 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Build frontend assets
+        run: npm run build
+
       - name: Build CDK app
-        # runs the same pre-build as your package.json "precdk" script
         run: npm run precdk
 
       - name: Configure AWS Credentials
@@ -41,8 +43,7 @@ jobs:
           aws-region: ${{ secrets.AWS_REGION }}
 
       - name: Run CDK Diff
-        # point CDK at the built app
-        run: npx cdk diff --app "node build/bin/app.js"
+        run: npx cdk diff --app "node build/bin/app.js" -c googleClientId=${{ secrets.GOOGLE_CLIENT_ID }} -c adminEmail=kdisharoon@gmail.com
 
   cdk-deploy:
     name: CDK Deploy
@@ -62,6 +63,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Build frontend assets
+        run: npm run build
+
+      - name: Build CDK app
+        run: npm run precdk
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -70,10 +76,7 @@ jobs:
           aws-region: ${{ secrets.AWS_REGION }}
 
       - name: Verify AWS identity
-        run: aws sts get-caller-identity --region us-east-1
-
-      - name: Build CDK app
-        run: npm run precdk
+        run: aws sts get-caller-identity
 
       - name: Deploy Stacks
-        run: npx cdk deploy --all --require-approval never --app "node build/bin/app.js"
+        run: npx cdk deploy --all --require-approval never --app "node build/bin/app.js" -c googleClientId=${{ secrets.GOOGLE_CLIENT_ID }} -c adminEmail=kdisharoon@gmail.com

@@ -79,11 +79,11 @@ export const useAmaroStore = defineStore('amaro', {
       }
     },
 
-    async addBottle(payload: CreateAmaroBottlePayload): Promise<AmaroBottle | null> {
+    async addBottle(payload: CreateAmaroBottlePayload, idToken?: string): Promise<AmaroBottle | null> {
       this.isLoading = true;
       this.error = null;
       try {
-        const newBottle = await amaroApiClient.addBottle(payload);
+        const newBottle = await amaroApiClient.addBottle(payload, idToken);
         this.bottles.push(newBottle);
         return newBottle;
       } catch (err: any) {

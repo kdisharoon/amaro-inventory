@@ -3,6 +3,10 @@ import { ref } from 'vue';
 import { useAmaroStore } from '../stores/amaroStore';
 import type { CreateAmaroBottlePayload } from '../types/amaro';
 
+const props = defineProps<{
+  idToken?: string | null;
+}>();
+
 const amaroStore = useAmaroStore();
 
 const name = ref('');
@@ -12,6 +16,7 @@ const abv = ref<number | null>(null);
 const description = ref('');
 const flavorNotes = ref(''); // comma-separated
 const sweetnessLevel = ref<'bone-dry' | 'dry' | 'semi-sweet' | 'sweet'>('dry');
+const status = ref<'unopened' | 'opened' | 'finished'>('unopened');
 const isSubmitting = ref(false);
 const error = ref<string | null>(null);
 
@@ -23,6 +28,7 @@ const resetForm = () => {
   description.value = '';
   flavorNotes.value = '';
   sweetnessLevel.value = 'dry';
+  status.value = 'unopened';
 };
 
 const submit = async () => {
@@ -43,11 +49,12 @@ const submit = async () => {
       .map((s) => s.trim())
       .filter(Boolean),
     sweetnessLevel: sweetnessLevel.value,
+    status: status.value,
   };
 
   isSubmitting.value = true;
   try {
-    const created = await amaroStore.addBottle(payload);
+    const created = await amaroStore.addBottle(payload, props.idToken || undefined);
     if (created) resetForm();
   } catch (e: any) {
     error.value = e?.message || 'Failed to add bottle.';
@@ -80,6 +87,12 @@ const submit = async () => {
         <option value="dry">Dry</option>
         <option value="semi-sweet">Semi-sweet</option>
         <option value="sweet">Sweet</option>
+      </select>
+      <label>Status</label>
+      <select v-model="status">
+        <option value="unopened">Not Opened</option>
+        <option value="opened">Opened</option>
+        <option value="finished">Finished</option>
       </select>
       <button type="submit" :disabled="isSubmitting">{{ isSubmitting ? 'Saving...' : 'Add Bottle' }}</button>
     </div>

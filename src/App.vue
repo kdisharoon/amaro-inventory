@@ -1,13 +1,97 @@
 <script setup lang="ts">
-import { onMounted } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { useAmaroStore } from './stores/amaroStore';
 import AmaroFilterBar from './components/AmaroFilterBar.vue';
 import AmaroCard from './components/AmaroCard.vue';
+import AmaroForm from './components/AmaroForm.vue';
 
 const amaroStore = useAmaroStore();
+const showAddForm = ref(false);
+const idToken = ref<string | null>(localStorage.getItem('amaro_google_id_token'));
+const signedInEmail = ref<string | null>(localStorage.getItem('amaro_google_email'));
+
+const googleClientId = window.__APP_CONFIG__?.GOOGLE_CLIENT_ID || '';
+const adminEmail = (window.__APP_CONFIG__?.ADMIN_EMAIL || '').toLowerCase();
+
+const isAuthorized = computed(() => {
+  if (!adminEmail || !signedInEmail.value) return false;
+  return signedInEmail.value.toLowerCase() === adminEmail;
+});
+
+const decodeJwtPayload = (token: string): Record<string, any> | null => {
+  try {
+    const payload = token.split('.')[1];
+    if (!payload) return null;
+    const normalized = payload.replace(/-/g, '+').replace(/_/g, '/');
+    const json = decodeURIComponent(
+      atob(normalized)
+        .split('')
+        .map((c) => `%${(`00${c.charCodeAt(0).toString(16)}`).slice(-2)}`)
+        .join('')
+    );
+    return JSON.parse(json);
+  } catch {
+    return null;
+  }
+};
+
+const handleGoogleCredential = (response: { credential?: string }) => {
+  if (!response?.credential) return;
+  const payload = decodeJwtPayload(response.credential);
+  const email = payload?.email as string | undefined;
+  if (!email) return;
+
+  idToken.value = response.credential;
+  signedInEmail.value = email;
+  localStorage.setItem('amaro_google_id_token', response.credential);
+  localStorage.setItem('amaro_google_email', email);
+};
+
+const renderGoogleButton = () => {
+  if (!window.google || !googleClientId) return;
+
+  window.google.accounts.id.initialize({
+    client_id: googleClientId,
+    callback: handleGoogleCredential,
+  });
+
+  const target = document.getElementById('google-signin-button');
+  if (target) {
+    target.innerHTML = '';
+    window.google.accounts.id.renderButton(target, {
+      theme: 'outline',
+      size: 'large',
+      shape: 'pill',
+    });
+  }
+};
+
+const waitForGoogleAndRender = () => {
+  let attempts = 0;
+  const timer = window.setInterval(() => {
+    attempts += 1;
+    if (window.google && googleClientId) {
+      window.clearInterval(timer);
+      renderGoogleButton();
+    }
+    if (attempts > 25) {
+      window.clearInterval(timer);
+    }
+  }, 200);
+};
+
+const signOut = () => {
+  idToken.value = null;
+  signedInEmail.value = null;
+  showAddForm.value = false;
+  localStorage.removeItem('amaro_google_id_token');
+  localStorage.removeItem('amaro_google_email');
+  window.google?.accounts?.id?.disableAutoSelect?.();
+};
 
 onMounted(() => {
   amaroStore.fetchBottles();
+  waitForGoogleAndRender();
 });
 </script>
 
@@ -26,6 +110,31 @@ onMounted(() => {
     </header>
 
     <main class="app-main">
+      <section class="auth-panel">
+        <div class="auth-copy">
+          <h2>Add Bottle</h2>
+          <p v-if="adminEmail">Only <strong>{{ adminEmail }}</strong> can add bottles.</p>
+          <p v-else>Admin account is not configured yet.</p>
+        </div>
+
+        <div class="auth-actions">
+          <template v-if="!idToken">
+            <div id="google-signin-button"></div>
+          </template>
+
+          <template v-else>
+            <p class="signed-in-as">Signed in as <strong>{{ signedInEmail }}</strong></p>
+            <button class="toggle-add-btn" @click="showAddForm = !showAddForm" :disabled="!isAuthorized">
+              {{ showAddForm ? 'Hide Add Form' : 'Add Bottle' }}
+            </button>
+            <button class="signout-btn" @click="signOut">Sign out</button>
+            <p v-if="!isAuthorized" class="unauthorized-note">This account is not authorized to add bottles.</p>
+          </template>
+        </div>
+      </section>
+
+      <AmaroForm v-if="showAddForm && isAuthorized" :id-token="idToken" />
+
       <AmaroFilterBar />
 
       <div v-if="amaroStore.isLoading" class="loading-state">
@@ -97,6 +206,81 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 2rem;
+}
+
+.auth-panel {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.auth-copy h2 {
+  margin: 0;
+  font-size: 1.125rem;
+}
+
+.auth-copy p {
+  margin: 0.25rem 0 0;
+  color: #64748b;
+}
+
+.auth-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.signed-in-as {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.toggle-add-btn,
+.signout-btn {
+  border: none;
+  border-radius: 6px;
+  padding: 0.5rem 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.toggle-add-btn {
+  background: #2563eb;
+  color: #fff;
+}
+
+.toggle-add-btn:disabled {
+  background: #94a3b8;
+  cursor: not-allowed;
+}
+
+.signout-btn {
+  background: #e2e8f0;
+  color: #1f2937;
+}
+
+.unauthorized-note {
+  margin: 0;
+  color: #b91c1c;
+  font-size: 0.85rem;
+}
+
+@media (max-width: 768px) {
+  .auth-panel {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .auth-actions {
+    justify-content: flex-start;
+  }
 }
 
 .loading-state,

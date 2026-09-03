@@ -7,6 +7,9 @@ import * as s3deploy from 'aws-cdk-lib/aws-s3-deployment';
 
 export interface SiteStackProps extends cdk.StackProps {
   stage?: string;
+  apiEndpoint: string;
+  googleClientId: string;
+  adminEmail: string;
 }
 
 export class SiteStack extends cdk.Stack {
@@ -14,6 +17,12 @@ export class SiteStack extends cdk.Stack {
 
   constructor(scope: Construct, id: string, props?: SiteStackProps) {
     super(scope, id, props);
+
+    const runtimeConfig = `window.__APP_CONFIG__ = ${JSON.stringify({
+      VITE_API_ENDPOINT: props?.apiEndpoint ?? '',
+      GOOGLE_CLIENT_ID: props?.googleClientId ?? '',
+      ADMIN_EMAIL: props?.adminEmail ?? '',
+    })};`;
 
     // 1. S3 Bucket for Static Web Assets
     const siteBucket = new s3.Bucket(this, 'SiteBucket', {
@@ -51,7 +60,10 @@ export class SiteStack extends cdk.Stack {
 
     // 3. Automated S3 Deployment from Vue dist directory
     new s3deploy.BucketDeployment(this, 'DeploySite', {
-      sources: [s3deploy.Source.asset('./dist')],
+      sources: [
+        s3deploy.Source.asset('./dist'),
+        s3deploy.Source.data('runtime-config.js', runtimeConfig),
+      ],
       destinationBucket: siteBucket,
       distribution,
       distributionPaths: ['/*'],
