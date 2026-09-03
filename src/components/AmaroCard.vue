@@ -8,6 +8,8 @@ defineProps<{
 const formatSweetness = (level?: string): string => {
   if (!level) return '';
   switch (level) {
+    case 'not-specified': return 'Not Specified';
+    case 'bone-dry': return 'Not Specified';
     case 'dry': return 'Dry';
     case 'semi-sweet': return 'Semi-Sweet';
     case 'sweet': return 'Sweet';
@@ -16,7 +18,7 @@ const formatSweetness = (level?: string): string => {
 };
 
 const formatStatus = (status?: string): string => {
-  if (!status) return 'Unknown';
+  if (!status) return 'Not Opened';
   switch (status) {
     case 'unopened': return 'Not Opened';
     case 'opened': return 'Opened';
@@ -28,6 +30,14 @@ const formatStatus = (status?: string): string => {
 
 <template>
   <div class="amaro-card">
+    <img
+      v-if="bottle.imageUrl"
+      class="bottle-image"
+      :src="bottle.imageUrl"
+      :alt="`${bottle.name} bottle image`"
+      loading="lazy"
+    />
+
     <div class="card-header">
       <div>
         <h3 class="bottle-name">{{ bottle.name }}</h3>
@@ -43,7 +53,7 @@ const formatStatus = (status?: string): string => {
         {{ formatSweetness(bottle.sweetnessLevel) }}
       </span>
 
-      <span class="status-badge" :class="bottle.status || 'unknown'">
+      <span class="status-badge" :class="bottle.status || 'unopened'">
         {{ formatStatus(bottle.status) }}
       </span>
 
@@ -76,6 +86,15 @@ const formatStatus = (status?: string): string => {
 .amaro-card:hover {
   transform: translateY(-2px);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+.bottle-image {
+  width: 100%;
+  height: 220px;
+  object-fit: cover;
+  border-radius: 8px;
+  margin-bottom: 0.9rem;
+  border: 1px solid #e2e8f0;
 }
 
 .card-header {

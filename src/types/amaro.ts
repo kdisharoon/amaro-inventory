@@ -6,8 +6,9 @@ export interface AmaroBottle {
   abv: number;
   description: string;
   flavorNotes: string[];
-  sweetnessLevel: 'bone-dry' | 'dry' | 'semi-sweet' | 'sweet';
+  sweetnessLevel: 'not-specified' | 'dry' | 'semi-sweet' | 'sweet';
   status: 'unopened' | 'opened' | 'finished';
+  imageUrl?: string;
   rating?: number;
   dateAdded: string;
 }

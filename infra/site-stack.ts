@@ -10,6 +10,7 @@ export interface SiteStackProps extends cdk.StackProps {
   apiEndpoint: string;
   googleClientId: string;
   adminEmail: string;
+  imageBaseUrl: string;
 }
 
 export class SiteStack extends cdk.Stack {
@@ -22,6 +23,7 @@ export class SiteStack extends cdk.Stack {
       VITE_API_ENDPOINT: props?.apiEndpoint ?? '',
       GOOGLE_CLIENT_ID: props?.googleClientId ?? '',
       ADMIN_EMAIL: props?.adminEmail ?? '',
+      IMAGE_BASE_URL: props?.imageBaseUrl ?? '',
     })};`;
 
     // 1. S3 Bucket for Static Web Assets

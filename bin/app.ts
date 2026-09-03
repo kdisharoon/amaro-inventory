@@ -26,6 +26,7 @@ new SiteStack(app, 'AmaroSiteStack', {
   env,
   description: 'Frontend static site (S3 + CloudFront) for Amaro Inventory',
   apiEndpoint: amaroStack.apiUrl,
+  imageBaseUrl: amaroStack.imageBaseUrl,
   googleClientId,
   adminEmail,
   stage: app.node.tryGetContext('stage') ?? 'dev',
