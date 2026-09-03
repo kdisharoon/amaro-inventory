@@ -32,7 +32,7 @@ export class AmaroStack extends cdk.Stack {
 
     const amaroLambda = new lambdaNodejs.NodejsFunction(this, 'AmaroHandlerConstruct', {
       functionName: 'AmaroHandler',
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_24_X,
       entry: path.join(process.cwd(), 'src', 'lambda', 'amaroHandler.ts'),
       handler: 'handler',
       environment: {

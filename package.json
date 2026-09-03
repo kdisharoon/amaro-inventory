@@ -13,9 +13,9 @@
     "cdk:deploy": "npm run precdk && cdk deploy --app \"node build/bin/app.js\" --all"
   },
   "dependencies": {
-    "@aws-sdk/client-dynamodb": "^3.1124.0",
-    "@aws-sdk/lib-dynamodb": "^3.1124.0",
-    "aws-cdk-lib": "^2.267.0",
+    "@aws-sdk/client-dynamodb": "^3.1125.0",
+    "@aws-sdk/lib-dynamodb": "^3.1125.0",
+    "aws-cdk-lib": "^2.268.0",
     "constructs": "^10.8.1",
     "pinia": "^4.0.3",
     "vue": "^3.5.42"

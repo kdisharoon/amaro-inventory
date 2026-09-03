@@ -35,7 +35,7 @@ export class ApiStack extends cdk.Stack {
     const getBottlesFunction = new lambdaNodejs.NodejsFunction(this, 'GetBottlesHandler', {
       entry: 'lambda/getBottles.ts',
       handler: 'handler',
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_24_X,
       environment: lambdaEnv,
       bundling: {
         minify: true,
@@ -46,7 +46,7 @@ export class ApiStack extends cdk.Stack {
     const createBottleFunction = new lambdaNodejs.NodejsFunction(this, 'CreateBottleHandler', {
       entry: 'lambda/createBottle.ts',
       handler: 'handler',
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_24_X,
       environment: lambdaEnv,
       bundling: {
         minify: true,
