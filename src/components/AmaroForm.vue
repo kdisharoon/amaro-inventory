@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 import { useAmaroStore } from '../stores/amaroStore';
-import { amaroApiClient } from '../api/amaroClient';
+import { amaroApiClient, type BottleImageAnalysisResult } from '../api/amaroClient';
 import type { CreateAmaroBottlePayload } from '../types/amaro';
 
 const props = defineProps<{
@@ -15,18 +15,24 @@ const producer = ref('');
 const region = ref('');
 const abv = ref<number | null>(null);
 const description = ref('');
-const flavorNotes = ref(''); // comma-separated
+const flavorNotes = ref('');
 const sweetnessLevel = ref<'not-specified' | 'dry' | 'semi-sweet' | 'sweet'>('not-specified');
 const status = ref<'unopened' | 'opened' | 'finished'>('unopened');
+
 const selectedImageFile = ref<File | null>(null);
 const selectedImagePreviewUrl = ref('');
-const selectedExternalImageUrl = ref('');
-const imageSearchQuery = ref('');
-const imageOptions = ref<Array<{ id: string; title: string; thumbUrl: string; fullUrl: string }>>([]);
-const isSearchingImages = ref(false);
+const uploadedImageUrl = ref('');
+
+const isAnalyzingImage = ref(false);
+const analysisMessage = ref('');
+const analysisError = ref<string | null>(null);
+const descriptionConfidence = ref<'low' | 'medium' | 'high' | null>(null);
+const flavorNotesConfidence = ref<'low' | 'medium' | 'high' | null>(null);
+const descriptionNeedsReview = ref(false);
+const flavorNotesNeedsReview = ref(false);
+
 const isSubmitting = ref(false);
 const error = ref<string | null>(null);
-const imageSearchError = ref<string | null>(null);
 
 const MAX_IMAGE_WIDTH = 1200;
 const WEBP_QUALITY = 0.78;
@@ -51,14 +57,13 @@ const loadImage = (src: string): Promise<HTMLImageElement> =>
 const compressImageToFile = async (file: File): Promise<File> => {
   const sourceDataUrl = await readAsDataUrl(file);
   const img = await loadImage(sourceDataUrl);
-  const scale = Math.min(1, MAX_IMAGE_WIDTH / img.width);
+  let scale = Math.min(1, MAX_IMAGE_WIDTH / img.width);
 
   const canvas = document.createElement('canvas');
-  canvas.width = Math.max(1, Math.floor(img.width * scale));
-  canvas.height = Math.max(1, Math.floor(img.height * scale));
   const ctx = canvas.getContext('2d');
-  if (!ctx) return file;
-  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  if (!ctx) {
+    throw new Error('This browser cannot resize images.');
+  }
 
   const toBlob = (quality: number): Promise<Blob> =>
     new Promise((resolve, reject) => {
@@ -71,8 +76,24 @@ const compressImageToFile = async (file: File): Promise<File> => {
       }, 'image/webp', quality);
     });
 
+  const render = () => {
+    canvas.width = Math.max(1, Math.floor(img.width * scale));
+    canvas.height = Math.max(1, Math.floor(img.height * scale));
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  };
+
+  render();
   let blob = await toBlob(WEBP_QUALITY);
   if (blob.size > MAX_UPLOAD_BYTES) {
+    blob = await toBlob(0.65);
+  }
+
+  let attempts = 0;
+  while (blob.size > MAX_UPLOAD_BYTES && attempts < 5) {
+    attempts += 1;
+    scale *= 0.85;
+    render();
     blob = await toBlob(0.65);
   }
 
@@ -80,16 +101,82 @@ const compressImageToFile = async (file: File): Promise<File> => {
   return new File([blob], `${baseName}.webp`, { type: 'image/webp' });
 };
 
+const resetAnalysisSignals = () => {
+  analysisError.value = null;
+  descriptionConfidence.value = null;
+  flavorNotesConfidence.value = null;
+  descriptionNeedsReview.value = false;
+  flavorNotesNeedsReview.value = false;
+};
+
+const applyAnalysis = (analysis: BottleImageAnalysisResult) => {
+  if (analysis.name) name.value = analysis.name;
+  if (analysis.producer) producer.value = analysis.producer;
+  if (analysis.region) region.value = analysis.region;
+  if (typeof analysis.abv === 'number') abv.value = analysis.abv;
+  if (analysis.description) description.value = analysis.description;
+  if (Array.isArray(analysis.flavorNotes) && analysis.flavorNotes.length > 0) {
+    flavorNotes.value = analysis.flavorNotes.join(', ');
+  }
+  if (analysis.sweetnessLevel) sweetnessLevel.value = analysis.sweetnessLevel;
+
+  descriptionConfidence.value = analysis.descriptionConfidence || null;
+  flavorNotesConfidence.value = analysis.flavorNotesConfidence || null;
+  descriptionNeedsReview.value = Boolean(analysis.descriptionNeedsReview);
+  flavorNotesNeedsReview.value = Boolean(analysis.flavorNotesNeedsReview);
+};
+
+const uploadSelectedImage = async (): Promise<string> => {
+  if (!props.idToken) {
+    throw new Error('Sign in is required before uploading and analyzing an image.');
+  }
+  if (!selectedImageFile.value) {
+    throw new Error('No image selected.');
+  }
+
+  const uploadTarget = await amaroApiClient.requestImageUploadUrl(
+    props.idToken,
+    selectedImageFile.value.type || 'image/webp',
+    selectedImageFile.value.name
+  );
+
+  await amaroApiClient.uploadImageToS3(uploadTarget.uploadUrl, selectedImageFile.value);
+  uploadedImageUrl.value = uploadTarget.imageUrl;
+  return uploadTarget.imageUrl;
+};
+
+const analyzeImageInBackground = async () => {
+  if (!selectedImageFile.value) return;
+
+  isAnalyzingImage.value = true;
+  analysisMessage.value = 'Working... reading the label and preparing draft details.';
+  resetAnalysisSignals();
+
+  try {
+    const imageUrl = await uploadSelectedImage();
+    const analysis = await amaroApiClient.analyzeBottleImage(props.idToken || '', imageUrl);
+    applyAnalysis(analysis);
+    analysisMessage.value = 'Draft fields are ready. Please review description and flavor notes.';
+  } catch (e: any) {
+    analysisError.value = e?.message || 'Image analysis failed.';
+    analysisMessage.value = '';
+  } finally {
+    isAnalyzingImage.value = false;
+  }
+};
+
 const setImageFromFile = async (event: Event) => {
   const input = event.target as HTMLInputElement;
   const file = input.files?.[0];
   if (!file) return;
+
   try {
     error.value = null;
     const compressedFile = await compressImageToFile(file);
     selectedImageFile.value = compressedFile;
-    selectedExternalImageUrl.value = '';
+    uploadedImageUrl.value = '';
     selectedImagePreviewUrl.value = URL.createObjectURL(compressedFile);
+    await analyzeImageInBackground();
   } catch (e: any) {
     error.value = e?.message || 'Failed to load image.';
   } finally {
@@ -100,86 +187,9 @@ const setImageFromFile = async (event: Event) => {
 const clearImage = () => {
   selectedImageFile.value = null;
   selectedImagePreviewUrl.value = '';
-  selectedExternalImageUrl.value = '';
-};
-
-const searchImages = async () => {
-  const query = imageSearchQuery.value.trim() || name.value.trim();
-  if (!query) {
-    imageSearchError.value = 'Enter a bottle name to search for images.';
-    return;
-  }
-
-  imageSearchError.value = null;
-  isSearchingImages.value = true;
-  imageOptions.value = [];
-
-  try {
-    const url = `https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(query)} bottle&gsrnamespace=6&gsrlimit=12&prop=imageinfo&iiprop=url&iiurlwidth=480&format=json&origin=*`;
-    const response = await fetch(url, { method: 'GET' });
-    if (!response.ok) throw new Error(`Image search failed (Status ${response.status})`);
-
-    const data = await response.json() as {
-      query?: { pages?: Record<string, { pageid: number; title: string; imageinfo?: Array<{ url?: string; thumburl?: string }> }> };
-    };
-
-    const pages = Object.values(data.query?.pages || {});
-    imageOptions.value = pages
-      .map((page) => {
-        const imageInfo = page.imageinfo?.[0];
-        const thumbUrl = imageInfo?.thumburl;
-        const fullUrl = imageInfo?.url;
-        if (!thumbUrl || !fullUrl) return null;
-        return {
-          id: String(page.pageid),
-          title: page.title.replace(/^File:/, ''),
-          thumbUrl,
-          fullUrl,
-        };
-      })
-      .filter((item): item is { id: string; title: string; thumbUrl: string; fullUrl: string } => Boolean(item));
-
-    if (imageOptions.value.length === 0) {
-      imageSearchError.value = 'No image results found. Try a more specific bottle name.';
-    }
-  } catch (e: any) {
-    imageSearchError.value = e?.message || 'Failed to search images.';
-  } finally {
-    isSearchingImages.value = false;
-  }
-};
-
-const selectSearchImage = (url: string) => {
-  selectedImageFile.value = null;
-  selectedExternalImageUrl.value = url;
-  selectedImagePreviewUrl.value = url;
-};
-
-const uploadImageIfNeeded = async (): Promise<string | undefined> => {
-  if (!props.idToken) {
-    if (selectedImageFile.value || selectedExternalImageUrl.value) {
-      throw new Error('Sign in is required before uploading an image.');
-    }
-    return undefined;
-  }
-
-  if (selectedImageFile.value) {
-    const uploadTarget = await amaroApiClient.requestImageUploadUrl(
-      props.idToken,
-      selectedImageFile.value.type || 'image/webp',
-      selectedImageFile.value.name
-    );
-
-    await amaroApiClient.uploadImageToS3(uploadTarget.uploadUrl, selectedImageFile.value);
-    return uploadTarget.imageUrl;
-  }
-
-  if (selectedExternalImageUrl.value) {
-    const imported = await amaroApiClient.importImageFromUrl(props.idToken, selectedExternalImageUrl.value);
-    return imported.imageUrl;
-  }
-
-  return undefined;
+  uploadedImageUrl.value = '';
+  analysisMessage.value = '';
+  resetAnalysisSignals();
 };
 
 const resetForm = () => {
@@ -193,10 +203,9 @@ const resetForm = () => {
   status.value = 'unopened';
   selectedImageFile.value = null;
   selectedImagePreviewUrl.value = '';
-  selectedExternalImageUrl.value = '';
-  imageSearchQuery.value = '';
-  imageOptions.value = [];
-  imageSearchError.value = null;
+  uploadedImageUrl.value = '';
+  analysisMessage.value = '';
+  resetAnalysisSignals();
 };
 
 const submit = async () => {
@@ -208,7 +217,9 @@ const submit = async () => {
 
   isSubmitting.value = true;
   try {
-    const uploadedImageUrl = await uploadImageIfNeeded();
+    if (selectedImageFile.value && !uploadedImageUrl.value) {
+      await uploadSelectedImage();
+    }
 
     const payload: CreateAmaroBottlePayload = {
       name: name.value,
@@ -222,7 +233,7 @@ const submit = async () => {
         .filter(Boolean),
       sweetnessLevel: sweetnessLevel.value,
       status: status.value,
-      imageUrl: uploadedImageUrl,
+      imageUrl: uploadedImageUrl.value || undefined,
     };
 
     const created = await amaroStore.addBottle(payload, props.idToken || undefined);
@@ -237,22 +248,8 @@ const submit = async () => {
 
 <template>
   <form class="amaro-form" @submit.prevent="submit">
-    <div class="row">
-      <input v-model="name" placeholder="Name" />
-      <input v-model="producer" placeholder="Producer" />
-    </div>
-
-    <div class="row">
-      <input v-model="region" placeholder="Region" />
-      <input v-model.number="abv" type="number" min="0" max="100" placeholder="ABV %" />
-    </div>
-
-    <textarea v-model="description" placeholder="Description (optional)"></textarea>
-
-    <input v-model="flavorNotes" placeholder="Flavor notes (comma-separated)" />
-
     <section class="image-section">
-      <div class="image-section-header">Bottle Image (optional)</div>
+      <div class="image-section-header">Bottle Image</div>
       <div class="image-input-actions">
         <label class="image-action-btn" for="image-from-storage">Upload from device</label>
         <input id="image-from-storage" type="file" accept="image/*" @change="setImageFromFile" />
@@ -263,34 +260,46 @@ const submit = async () => {
         <button type="button" class="secondary-btn" @click="clearImage" :disabled="!selectedImagePreviewUrl">Clear image</button>
       </div>
 
-      <div class="image-search-row">
-        <input v-model="imageSearchQuery" placeholder="Search internet images (e.g. Averna bottle)" />
-        <button type="button" class="secondary-btn" @click="searchImages" :disabled="isSearchingImages">
-          {{ isSearchingImages ? 'Searching...' : 'Search Images' }}
-        </button>
+      <div v-if="isAnalyzingImage" class="analysis-status">
+        <span class="spinner-sm" aria-hidden="true"></span>
+        <span>Working... {{ analysisMessage }}</span>
       </div>
-
-      <p v-if="imageSearchError" class="form-error">{{ imageSearchError }}</p>
-
-      <div v-if="imageOptions.length > 0" class="image-results-grid">
-        <button
-          v-for="option in imageOptions"
-          :key="option.id"
-          class="image-option"
-          type="button"
-          @click="selectSearchImage(option.fullUrl)"
-          :title="option.title"
-        >
-          <img :src="option.thumbUrl" :alt="option.title" loading="lazy" />
-          <span>{{ option.title }}</span>
-        </button>
-      </div>
+      <p v-else-if="analysisMessage" class="analysis-done">{{ analysisMessage }}</p>
+      <p v-if="analysisError" class="form-error">{{ analysisError }}</p>
 
       <div v-if="selectedImagePreviewUrl" class="image-preview">
         <div class="image-preview-label">Selected image preview</div>
         <img :src="selectedImagePreviewUrl" alt="Selected bottle image" />
       </div>
     </section>
+
+    <div class="row">
+      <input v-model="name" placeholder="Name" />
+      <input v-model="producer" placeholder="Producer" />
+    </div>
+
+    <div class="row">
+      <input v-model="region" placeholder="Region" />
+      <input v-model.number="abv" type="number" min="0" max="100" placeholder="ABV %" />
+    </div>
+
+    <div class="field-group">
+      <div class="field-header">
+        <label for="description-input">Description</label>
+        <span v-if="descriptionConfidence" :class="['confidence-badge', descriptionConfidence]">{{ descriptionConfidence }} confidence</span>
+        <span v-if="descriptionNeedsReview" class="review-flag">Needs review</span>
+      </div>
+      <textarea id="description-input" v-model="description" placeholder="Description (optional)"></textarea>
+    </div>
+
+    <div class="field-group">
+      <div class="field-header">
+        <label for="flavor-notes-input">Flavor notes</label>
+        <span v-if="flavorNotesConfidence" :class="['confidence-badge', flavorNotesConfidence]">{{ flavorNotesConfidence }} confidence</span>
+        <span v-if="flavorNotesNeedsReview" class="review-flag">Needs review</span>
+      </div>
+      <input id="flavor-notes-input" v-model="flavorNotes" placeholder="Flavor notes (comma-separated)" />
+    </div>
 
     <div class="row">
       <label>Sweetness</label>
@@ -327,17 +336,25 @@ const submit = async () => {
 .image-action-btn { background: #e2e8f0; color: #1f2937; border-radius: 6px; padding: 0.45rem 0.7rem; font-size: 0.86rem; cursor: pointer; }
 .secondary-btn { background: #e2e8f0 !important; color: #1f2937 !important; }
 .secondary-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-.image-search-row { display: flex; gap: 0.5rem; }
-.image-results-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 0.5rem; }
-.image-option { background: #fff !important; color: #1f2937 !important; border: 1px solid #cbd5e0 !important; display: flex; flex-direction: column; gap: 0.3rem; padding: 0.35rem !important; }
-.image-option img { width: 100%; height: 90px; object-fit: cover; border-radius: 4px; }
-.image-option span { font-size: 0.72rem; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .image-preview { border: 1px dashed #cbd5e0; border-radius: 8px; padding: 0.5rem; background: #fff; }
 .image-preview-label { font-size: 0.78rem; color: #64748b; margin-bottom: 0.35rem; }
 .image-preview img { width: 100%; max-height: 240px; object-fit: contain; border-radius: 6px; }
+.analysis-status { display: inline-flex; align-items: center; gap: 0.5rem; color: #334155; font-size: 0.87rem; }
+.analysis-done { color: #1e293b; margin: 0; font-size: 0.87rem; }
+.spinner-sm { width: 14px; height: 14px; border: 2px solid #cbd5e0; border-top-color: #2563eb; border-radius: 50%; animation: spin-sm 0.8s linear infinite; }
+.field-group { display: flex; flex-direction: column; gap: 0.4rem; }
+.field-header { display: flex; align-items: center; gap: 0.4rem; color: #334155; font-size: 0.84rem; }
+.confidence-badge { padding: 0.1rem 0.45rem; border-radius: 999px; font-size: 0.72rem; font-weight: 600; text-transform: capitalize; }
+.confidence-badge.high { background: #dcfce7; color: #166534; }
+.confidence-badge.medium { background: #fef3c7; color: #92400e; }
+.confidence-badge.low { background: #fee2e2; color: #991b1b; }
+.review-flag { padding: 0.1rem 0.45rem; border-radius: 999px; background: #fee2e2; color: #991b1b; font-size: 0.72rem; font-weight: 600; }
+
+@keyframes spin-sm {
+  to { transform: rotate(360deg); }
+}
 
 @media (max-width: 768px) {
   .amaro-form .row { flex-direction: column; }
-  .image-search-row { flex-direction: column; }
 }
 </style>

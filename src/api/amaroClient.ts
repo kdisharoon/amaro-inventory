@@ -5,8 +5,18 @@ export interface ImageUploadTarget {
   imageUrl: string;
 }
 
-export interface ImportedImageResult {
-  imageUrl: string;
+export interface BottleImageAnalysisResult {
+  name?: string;
+  producer?: string;
+  region?: string;
+  abv?: number;
+  description?: string;
+  flavorNotes?: string[];
+  sweetnessLevel?: 'not-specified' | 'dry' | 'semi-sweet' | 'sweet';
+  descriptionConfidence?: 'low' | 'medium' | 'high';
+  flavorNotesConfidence?: 'low' | 'medium' | 'high';
+  descriptionNeedsReview?: boolean;
+  flavorNotesNeedsReview?: boolean;
 }
 
 declare global {
@@ -114,24 +124,24 @@ class AmaroApiClient {
   }
 
   /**
-   * Import an externally hosted image URL into S3 storage.
+   * Analyze a bottle image and return suggested form field values.
    */
-  async importImageFromUrl(idToken: string, sourceUrl: string): Promise<ImportedImageResult> {
-    const response = await fetch(`${this.baseUrl}/amaros/import-image-url`, {
+  async analyzeBottleImage(idToken: string, imageUrl: string): Promise<BottleImageAnalysisResult> {
+    const response = await fetch(`${this.baseUrl}/amaros/analyze-image`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Accept': 'application/json',
         Authorization: `Bearer ${idToken}`,
       },
-      body: JSON.stringify({ sourceUrl }),
+      body: JSON.stringify({ imageUrl }),
     });
 
     if (!response.ok) {
-      throw new Error(`Failed to import internet image (Status ${response.status})`);
+      throw new Error(`Failed to analyze bottle image (Status ${response.status})`);
     }
 
-    return response.json() as Promise<ImportedImageResult>;
+    return response.json() as Promise<BottleImageAnalysisResult>;
   }
 }
 
