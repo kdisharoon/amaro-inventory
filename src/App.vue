@@ -35,6 +35,15 @@ const decodeJwtPayload = (token: string): Record<string, any> | null => {
   }
 };
 
+const isTokenFresh = (token?: string | null): boolean => {
+  if (!token) return false;
+  const payload = decodeJwtPayload(token);
+  const exp = Number(payload?.exp || 0);
+  if (!exp) return false;
+  const now = Math.floor(Date.now() / 1000);
+  return exp > now + 30;
+};
+
 const handleGoogleCredential = (response: { credential?: string }) => {
   if (!response?.credential) return;
   const payload = decodeJwtPayload(response.credential);
@@ -98,9 +107,14 @@ const handleAddBottleClick = () => {
     return;
   }
 
-  if (idToken.value) {
+  if (idToken.value && isTokenFresh(idToken.value)) {
     showAddForm.value = true;
     return;
+  }
+
+  if (idToken.value && !isTokenFresh(idToken.value)) {
+    signOut();
+    authMessage.value = 'Session expired. Please sign in again to add and analyze bottles.';
   }
 
   if (!googleClientId) {
@@ -135,6 +149,9 @@ const signOut = () => {
 };
 
 onMounted(() => {
+  if (idToken.value && !isTokenFresh(idToken.value)) {
+    signOut();
+  }
   amaroStore.fetchBottles();
   waitForGoogleAndRender();
 });

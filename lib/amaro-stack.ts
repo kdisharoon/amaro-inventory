@@ -86,6 +86,7 @@ export class AmaroStack extends cdk.Stack {
     // Grant Lambda read/write permissions to AmaroTable
     amaroTable.grantReadWriteData(amaroLambda);
     imageBucket.grantPut(amaroLambda);
+    imageBucket.grantRead(amaroLambda);
     amaroLambda.addToRolePolicy(
       new iam.PolicyStatement({
         actions: ['rekognition:DetectText'],

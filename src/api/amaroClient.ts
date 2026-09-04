@@ -34,6 +34,21 @@ declare global {
 const API_BASE_URL =
   window.__APP_CONFIG__?.VITE_API_ENDPOINT || import.meta.env.VITE_API_ENDPOINT || '';
 
+const buildApiError = async (response: Response, fallbackMessage: string): Promise<Error> => {
+  let detail = '';
+  try {
+    const payload = await response.json();
+    const message = typeof payload?.message === 'string' ? payload.message : '';
+    const error = typeof payload?.error === 'string' ? payload.error : '';
+    detail = [message, error].filter(Boolean).join(' - ');
+  } catch {
+    // Ignore JSON parse failures and use fallback only.
+  }
+
+  const suffix = detail ? `: ${detail}` : '';
+  return new Error(`${fallbackMessage} (Status ${response.status})${suffix}`);
+};
+
 class AmaroApiClient {
   private baseUrl: string;
 
@@ -79,7 +94,7 @@ class AmaroApiClient {
     });
 
     if (!response.ok) {
-      throw new Error(`Failed to add amaro bottle (Status ${response.status})`);
+      throw await buildApiError(response, 'Failed to add amaro bottle');
     }
 
     return response.json();
@@ -100,7 +115,7 @@ class AmaroApiClient {
     });
 
     if (!response.ok) {
-      throw new Error(`Failed to request image upload URL (Status ${response.status})`);
+      throw await buildApiError(response, 'Failed to request image upload URL');
     }
 
     return response.json() as Promise<ImageUploadTarget>;
@@ -138,7 +153,7 @@ class AmaroApiClient {
     });
 
     if (!response.ok) {
-      throw new Error(`Failed to analyze bottle image (Status ${response.status})`);
+      throw await buildApiError(response, 'Failed to analyze bottle image');
     }
 
     return response.json() as Promise<BottleImageAnalysisResult>;
