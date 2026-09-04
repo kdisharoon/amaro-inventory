@@ -7,6 +7,7 @@ import * as apigateway from 'aws-cdk-lib/aws-apigateway';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
 import * as origins from 'aws-cdk-lib/aws-cloudfront-origins';
+import * as iam from 'aws-cdk-lib/aws-iam';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
@@ -61,6 +62,7 @@ export class AmaroStack extends cdk.Stack {
     // 2. Node.js Lambda Handler
     const googleClientId = this.node.tryGetContext('googleClientId') ?? process.env.GOOGLE_CLIENT_ID ?? '';
     const adminGoogleEmail = this.node.tryGetContext('adminEmail') ?? process.env.ADMIN_GOOGLE_EMAIL ?? 'kdisharoon@gmail.com';
+    const tavilyApiKey = this.node.tryGetContext('tavilyApiKey') ?? process.env.TAVILY_API_KEY ?? '';
 
     const amaroLambda = new lambdaNodejs.NodejsFunction(this, 'AmaroHandlerConstruct', {
       functionName: 'AmaroHandler',
@@ -71,6 +73,7 @@ export class AmaroStack extends cdk.Stack {
         TABLE_NAME: amaroTable.tableName,
         GOOGLE_CLIENT_ID: googleClientId,
         ADMIN_GOOGLE_EMAIL: adminGoogleEmail,
+        TAVILY_API_KEY: tavilyApiKey,
         IMAGE_BUCKET_NAME: imageBucket.bucketName,
         IMAGE_BASE_URL: this.imageBaseUrl,
       },
@@ -83,6 +86,12 @@ export class AmaroStack extends cdk.Stack {
     // Grant Lambda read/write permissions to AmaroTable
     amaroTable.grantReadWriteData(amaroLambda);
     imageBucket.grantPut(amaroLambda);
+    amaroLambda.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['rekognition:DetectText'],
+        resources: ['*'],
+      })
+    );
 
     // 3. REST API Gateway
     const api = new apigateway.RestApi(this, 'AmaroApiGateway', {
@@ -104,8 +113,8 @@ export class AmaroStack extends cdk.Stack {
     amarosResource.addMethod('POST', lambdaIntegration); // POST /amaros
     const imageUploadUrlResource = amarosResource.addResource('image-upload-url');
     imageUploadUrlResource.addMethod('POST', lambdaIntegration); // POST /amaros/image-upload-url
-    const importImageUrlResource = amarosResource.addResource('import-image-url');
-    importImageUrlResource.addMethod('POST', lambdaIntegration); // POST /amaros/import-image-url
+    const analyzeImageResource = amarosResource.addResource('analyze-image');
+    analyzeImageResource.addMethod('POST', lambdaIntegration); // POST /amaros/analyze-image
 
     const singleAmaroResource = amarosResource.addResource('{id}');
     singleAmaroResource.addMethod('GET', lambdaIntegration); // GET /amaros/{id}
