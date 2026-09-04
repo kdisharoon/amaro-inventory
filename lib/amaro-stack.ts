@@ -69,6 +69,8 @@ export class AmaroStack extends cdk.Stack {
       runtime: lambda.Runtime.NODEJS_24_X,
       entry: path.join(process.cwd(), 'src', 'lambda', 'amaroHandler.ts'),
       handler: 'handler',
+      timeout: cdk.Duration.seconds(29),
+      memorySize: 1024,
       environment: {
         TABLE_NAME: amaroTable.tableName,
         GOOGLE_CLIENT_ID: googleClientId,

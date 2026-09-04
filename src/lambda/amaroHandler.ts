@@ -94,6 +94,8 @@ const SOURCE_PRIORITY_KEYWORDS = {
   blog: ['blog', 'magazine', 'journal', 'review', 'recensione', 'medium', 'substack'],
 };
 
+const TAVILY_TIMEOUT_MS = 4500;
+
 
 const sanitizeExtension = (contentType: string, fileName?: string): string => {
   const lowerFileName = (fileName || '').toLowerCase();
@@ -261,27 +263,48 @@ const scoreConfidence = (
   };
 };
 
+const fetchJsonWithTimeout = async (url: string, init: RequestInit, timeoutMs: number): Promise<any> => {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, { ...init, signal: controller.signal });
+    return response;
+  } finally {
+    clearTimeout(timeout);
+  }
+};
+
 const tavilySearch = async (query: string, language: 'italian' | 'english'): Promise<TavilySearchResult[]> => {
   if (!TAVILY_API_KEY) return [];
 
-  const response = await fetch('https://api.tavily.com/search', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${TAVILY_API_KEY}`,
-    },
-    body: JSON.stringify({
-      query,
-      search_depth: 'basic',
-      max_results: 5,
-      include_answer: false,
-      include_raw_content: false,
-      include_usage: false,
-      topic: 'general',
-      country: 'italy',
-      language,
-    }),
-  });
+  let response: Response;
+  try {
+    response = await fetchJsonWithTimeout(
+      'https://api.tavily.com/search',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${TAVILY_API_KEY}`,
+        },
+        body: JSON.stringify({
+          query,
+          search_depth: 'basic',
+          max_results: 4,
+          include_answer: false,
+          include_raw_content: false,
+          include_usage: false,
+          topic: 'general',
+          country: 'italy',
+          language,
+        }),
+      },
+      TAVILY_TIMEOUT_MS
+    );
+  } catch (error) {
+    console.error('Tavily search request failed', error);
+    return [];
+  }
 
   if (!response.ok) {
     console.error('Tavily search failed', response.status);
@@ -295,21 +318,31 @@ const tavilySearch = async (query: string, language: 'italian' | 'english'): Pro
 const tavilyExtract = async (urls: string[], query: string): Promise<string> => {
   if (!TAVILY_API_KEY || urls.length === 0) return '';
 
-  const response = await fetch('https://api.tavily.com/extract', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${TAVILY_API_KEY}`,
-    },
-    body: JSON.stringify({
-      urls,
-      query,
-      extract_depth: 'basic',
-      format: 'text',
-      chunks_per_source: 3,
-      include_usage: false,
-    }),
-  });
+  let response: Response;
+  try {
+    response = await fetchJsonWithTimeout(
+      'https://api.tavily.com/extract',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${TAVILY_API_KEY}`,
+        },
+        body: JSON.stringify({
+          urls,
+          query,
+          extract_depth: 'basic',
+          format: 'text',
+          chunks_per_source: 2,
+          include_usage: false,
+        }),
+      },
+      TAVILY_TIMEOUT_MS
+    );
+  } catch (error) {
+    console.error('Tavily extract request failed', error);
+    return '';
+  }
 
   if (!response.ok) {
     console.error('Tavily extract failed', response.status);
@@ -391,15 +424,13 @@ const analyzeBottleImage = async (imageUrl: string): Promise<BottleAnalysisResul
   let sourceCount = 0;
 
   if (TAVILY_API_KEY && (name || producer)) {
-    const queries = buildSearchQueries(name, producer, region);
+    const queries = buildSearchQueries(name, producer, region).slice(0, 2);
     const allResults: TavilySearchResult[] = [];
     const languages: Array<'italian' | 'english'> = ['italian', 'english'];
 
     for (const query of queries) {
-      for (const language of languages) {
-        const results = await tavilySearch(query, language);
-        allResults.push(...results);
-      }
+      const queryResults = await Promise.all(languages.map((language) => tavilySearch(query, language)));
+      allResults.push(...queryResults.flat());
       if (allResults.length >= 14) break;
     }
 

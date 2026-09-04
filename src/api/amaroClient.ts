@@ -49,6 +49,14 @@ const buildApiError = async (response: Response, fallbackMessage: string): Promi
   return new Error(`${fallbackMessage} (Status ${response.status})${suffix}`);
 };
 
+const runFetch = async (input: RequestInfo | URL, init: RequestInit, action: string): Promise<Response> => {
+  try {
+    return await fetch(input, init);
+  } catch {
+    throw new Error(`${action}: network error. This is often a CORS issue, timeout, or temporary connectivity problem.`);
+  }
+};
+
 class AmaroApiClient {
   private baseUrl: string;
 
@@ -60,12 +68,12 @@ class AmaroApiClient {
    * Fetch all amari bottles from GET /amaros
    */
   async getBottles(): Promise<AmaroBottle[]> {
-    const response = await fetch(`${this.baseUrl}/amaros`, {
+    const response = await runFetch(`${this.baseUrl}/amaros`, {
       method: 'GET',
       headers: {
         'Accept': 'application/json',
       },
-    });
+    }, 'Failed to fetch amari catalog');
 
     if (!response.ok) {
       throw new Error(`Failed to fetch amari catalog (Status ${response.status})`);
@@ -87,11 +95,11 @@ class AmaroApiClient {
       headers.Authorization = `Bearer ${idToken}`;
     }
 
-    const response = await fetch(`${this.baseUrl}/amaros`, {
+    const response = await runFetch(`${this.baseUrl}/amaros`, {
       method: 'POST',
       headers,
       body: JSON.stringify(payload),
-    });
+    }, 'Failed to add amaro bottle');
 
     if (!response.ok) {
       throw await buildApiError(response, 'Failed to add amaro bottle');
@@ -104,7 +112,7 @@ class AmaroApiClient {
    * Request a presigned URL for uploading a bottle image to S3.
    */
   async requestImageUploadUrl(idToken: string, contentType: string, fileName?: string): Promise<ImageUploadTarget> {
-    const response = await fetch(`${this.baseUrl}/amaros/image-upload-url`, {
+    const response = await runFetch(`${this.baseUrl}/amaros/image-upload-url`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -112,7 +120,7 @@ class AmaroApiClient {
         Authorization: `Bearer ${idToken}`,
       },
       body: JSON.stringify({ contentType, fileName }),
-    });
+    }, 'Failed to request image upload URL');
 
     if (!response.ok) {
       throw await buildApiError(response, 'Failed to request image upload URL');
@@ -125,13 +133,13 @@ class AmaroApiClient {
    * Upload an image file directly to S3 using a presigned URL.
    */
   async uploadImageToS3(uploadUrl: string, file: File): Promise<void> {
-    const response = await fetch(uploadUrl, {
+    const response = await runFetch(uploadUrl, {
       method: 'PUT',
       headers: {
         'Content-Type': file.type || 'image/jpeg',
       },
       body: file,
-    });
+    }, 'Failed to upload image file to storage');
 
     if (!response.ok) {
       throw new Error(`Failed to upload image file (Status ${response.status})`);
@@ -142,7 +150,7 @@ class AmaroApiClient {
    * Analyze a bottle image and return suggested form field values.
    */
   async analyzeBottleImage(idToken: string, imageUrl: string): Promise<BottleImageAnalysisResult> {
-    const response = await fetch(`${this.baseUrl}/amaros/analyze-image`, {
+    const response = await runFetch(`${this.baseUrl}/amaros/analyze-image`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -150,7 +158,7 @@ class AmaroApiClient {
         Authorization: `Bearer ${idToken}`,
       },
       body: JSON.stringify({ imageUrl }),
-    });
+    }, 'Failed to analyze bottle image');
 
     if (!response.ok) {
       throw await buildApiError(response, 'Failed to analyze bottle image');
