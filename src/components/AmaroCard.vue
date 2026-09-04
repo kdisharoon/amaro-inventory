@@ -49,7 +49,10 @@ const formatStatus = (status?: string): string => {
     <p v-if="bottle.description" class="description">{{ bottle.description }}</p>
 
     <div class="meta-row">
-      <span v-if="bottle.sweetnessLevel" :class="['sweetness-badge', bottle.sweetnessLevel]">
+      <span
+        v-if="bottle.sweetnessLevel && bottle.sweetnessLevel !== 'not-specified'"
+        :class="['sweetness-badge', bottle.sweetnessLevel]"
+      >
         {{ formatSweetness(bottle.sweetnessLevel) }}
       </span>
 

@@ -950,6 +950,10 @@ const analyzeBottleImage = async (imageUrl: string): Promise<BottleAnalysisResul
     const confirmedProducer = chooseStrongStringEvidence(producerEvidence, 4.8, 2);
     const confirmedRegion = chooseStrongStringEvidence(regionEvidence, 4.0, 2);
     const confirmedAbv = chooseStrongNumberEvidence(abvEvidence, 4.2, 2);
+    const highTrustText = topResults
+      .filter((result) => isHighTrustSource(result.url))
+      .map((result, index) => sourceTexts[index] || '')
+      .join(' ');
 
     if (!name || looksLikeBadNameCandidate(name)) {
       name = confirmedName || chooseTopVoted(nameVotes, 2.2) || name;
@@ -967,6 +971,14 @@ const analyzeBottleImage = async (imageUrl: string): Promise<BottleAnalysisResul
 
     if (typeof confirmedAbv === 'number' && (typeof abv !== 'number' || Math.abs(confirmedAbv - abv) >= 0.5)) {
       abv = confirmedAbv;
+    }
+
+    if (!region) {
+      region = extractRegion(highTrustText) || region;
+    }
+
+    if (typeof abv !== 'number') {
+      abv = extractAbv(highTrustText) || abv;
     }
 
     if (!producer) {

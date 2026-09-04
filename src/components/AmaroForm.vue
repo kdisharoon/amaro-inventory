@@ -254,6 +254,18 @@ const cancel = () => {
   error.value = null;
   emit('cancel');
 };
+
+const clearDescription = () => {
+  description.value = '';
+  descriptionConfidence.value = null;
+  descriptionNeedsReview.value = false;
+};
+
+const clearFlavorNotes = () => {
+  flavorNotes.value = '';
+  flavorNotesConfidence.value = null;
+  flavorNotesNeedsReview.value = false;
+};
 </script>
 
 <template>
@@ -298,6 +310,7 @@ const cancel = () => {
         <label for="description-input">Description</label>
         <span v-if="descriptionConfidence" :class="['confidence-badge', descriptionConfidence]">{{ descriptionConfidence }} confidence</span>
         <span v-if="descriptionNeedsReview" class="review-flag">Needs review</span>
+        <button type="button" class="clear-text-btn" @click="clearDescription">Clear</button>
       </div>
       <textarea id="description-input" v-model="description" placeholder="Description (optional)"></textarea>
     </div>
@@ -307,6 +320,7 @@ const cancel = () => {
         <label for="flavor-notes-input">Flavor notes</label>
         <span v-if="flavorNotesConfidence" :class="['confidence-badge', flavorNotesConfidence]">{{ flavorNotesConfidence }} confidence</span>
         <span v-if="flavorNotesNeedsReview" class="review-flag">Needs review</span>
+        <button type="button" class="clear-text-btn" @click="clearFlavorNotes">Clear</button>
       </div>
       <input id="flavor-notes-input" v-model="flavorNotes" placeholder="Flavor notes (comma-separated)" />
     </div>
@@ -364,6 +378,7 @@ const cancel = () => {
 .confidence-badge.medium { background: #fef3c7; color: #92400e; }
 .confidence-badge.low { background: #fee2e2; color: #991b1b; }
 .review-flag { padding: 0.1rem 0.45rem; border-radius: 999px; background: #fee2e2; color: #991b1b; font-size: 0.72rem; font-weight: 600; }
+.clear-text-btn { margin-left: auto; background: #f1f5f9 !important; color: #334155 !important; border: 1px solid #cbd5e1 !important; padding: 0.12rem 0.5rem !important; font-size: 0.72rem; border-radius: 999px !important; }
 
 @keyframes spin-sm {
   to { transform: rotate(360deg); }
