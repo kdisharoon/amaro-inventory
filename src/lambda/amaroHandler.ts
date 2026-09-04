@@ -146,6 +146,16 @@ const buildS3KeyFromImageUrl = (imageUrl: string): string | undefined => {
 
 const normalizeWhitespace = (value: string): string => value.replace(/\s+/g, ' ').trim();
 
+const toTitleCase = (value: string): string =>
+  value
+    .toLowerCase()
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+
+const isGenericAmaroName = (value?: string): boolean => {
+  const normalized = normalizeWhitespace((value || '').toLowerCase());
+  return !normalized || normalized === 'amaro' || normalized === 'amari' || normalized === 'amaro italiano';
+};
+
 const hasSentenceMarkers = (value: string): boolean => {
   const lower = value.toLowerCase();
   return /\b(in cui|che|per offrire|offrire|alternativa|produzione industriale|with|made with|crafted to|offre|lavora)\b/.test(lower);
@@ -198,6 +208,17 @@ const extractRegion = (text: string): string | undefined => {
   const normalized = text.toLowerCase();
   const match = REGION_HINTS.find((region) => normalized.includes(region.toLowerCase()));
   return match;
+};
+
+const looksLikeBrandLine = (line: string): boolean => {
+  const normalized = normalizeWhitespace(line);
+  if (!normalized || normalized.length < 3 || normalized.length > 48) return false;
+  if (/%/.test(normalized)) return false;
+  if (/\d/.test(normalized)) return false;
+  if (/\b(amaro|liquore|digestivo|prodotto|gradazione|vol)\b/i.test(normalized)) return false;
+  const words = normalized.split(/\s+/);
+  if (words.length > 4) return false;
+  return true;
 };
 
 const extractFlavorNotesFromDescription = (text: string): string[] => {
@@ -696,6 +717,20 @@ const pickLikelyName = (lines: string[]): string | undefined => {
   }
 
   if (looksLikeBadNameCandidate(bestLine)) return undefined;
+
+  if (bestLine && /^amaro$/i.test(bestLine)) {
+    const amaroIndex = lines.findIndex((line) => normalizeWhitespace(line).toLowerCase() === 'amaro');
+    if (amaroIndex >= 0) {
+      const neighbors = [lines[amaroIndex - 1], lines[amaroIndex + 1], lines[amaroIndex + 2]]
+        .map((value) => normalizeWhitespace(value || ''))
+        .filter(Boolean)
+        .filter((value) => looksLikeBrandLine(value) && !/^amaro$/i.test(value));
+      if (neighbors.length > 0) {
+        return toTitleCase(`Amaro ${neighbors[0]}`);
+      }
+    }
+  }
+
   return bestLine;
 };
 
@@ -705,7 +740,21 @@ const pickLikelyProducer = (lines: string[], name?: string): string | undefined 
     return /distiller|liquor|spirits|azienda|house|fratelli|fratello|brothers/i.test(line);
   });
   const normalized = candidate ? normalizeWhitespace(candidate) : undefined;
-  return looksLikeBadProducerCandidate(normalized) ? undefined : normalized;
+  if (normalized && !looksLikeBadProducerCandidate(normalized)) {
+    return normalized;
+  }
+
+  const fallback = lines
+    .map((line) => normalizeWhitespace(line))
+    .filter((line) => {
+      if (!looksLikeBrandLine(line)) return false;
+      if (name && line.toLowerCase() === name.toLowerCase()) return false;
+      if (/^amaro$/i.test(line)) return false;
+      return true;
+    })
+    .sort((a, b) => b.length - a.length)[0];
+
+  return fallback && !looksLikeBadProducerCandidate(fallback) ? toTitleCase(fallback) : undefined;
 };
 
 const analyzeBottleImage = async (imageUrl: string): Promise<BottleAnalysisResult> => {
@@ -895,19 +944,16 @@ const analyzeBottleImage = async (imageUrl: string): Promise<BottleAnalysisResul
     if (!producer) {
       producer = extractLikelyProducerFromWebText(webText) || producer;
     }
-    if (!region) {
-      region = extractRegion(webText) || region;
-    }
-    if (typeof abv !== 'number') {
-      abv = extractAbv(webText);
+
+    const canUseWebDescription = Boolean(name && !isGenericAmaroName(name) && producer);
+    if (canUseWebDescription) {
+      description = chooseDescriptionFromWebText(webText, name);
+      flavorNotes = extractFlavorNotesFromDescription(webText);
     }
 
-    description = chooseDescriptionFromWebText(webText, name);
-    flavorNotes = extractFlavorNotesFromDescription(webText);
-
-    if (!name) {
+    if (!name || isGenericAmaroName(name)) {
       const guessedName = chooseDescriptionFromWebText(webText)?.split(/[,.]/)[0];
-      if (guessedName && /amaro/i.test(guessedName)) {
+      if (guessedName && /amaro/i.test(guessedName) && !looksLikeBadNameCandidate(guessedName)) {
         name = normalizeWhitespace(guessedName).slice(0, 80);
       }
     }
