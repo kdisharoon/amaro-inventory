@@ -156,6 +156,13 @@ const isGenericAmaroName = (value?: string): boolean => {
   return !normalized || normalized === 'amaro' || normalized === 'amari' || normalized === 'amaro italiano';
 };
 
+const isSpecificAmaroName = (value?: string): boolean => {
+  const normalized = normalizeWhitespace(value || '');
+  if (!normalized || isGenericAmaroName(normalized)) return false;
+  const words = normalized.split(/\s+/);
+  return words.length >= 2 && normalized.length >= 8;
+};
+
 const hasSentenceMarkers = (value: string): boolean => {
   const lower = value.toLowerCase();
   return /\b(in cui|che|per offrire|offrire|alternativa|produzione industriale|with|made with|crafted to|offre|lavora)\b/.test(lower);
@@ -283,6 +290,21 @@ const buildSearchQueries = (name?: string, producer?: string, region?: string): 
   return Array.from(new Set(rendered));
 };
 
+const buildCorroborationQueries = (name: string, visionHints: string[]): string[] => {
+  const base = [
+    `${name} produttore gradazione alcolica regione scheda tecnica`,
+    `${name} producer ABV region product sheet`,
+    `${name} amaro essentia mediterranea gradazione`,
+  ];
+
+  const hintQueries = visionHints
+    .map((hint) => normalizeWhitespace(`${name} ${hint} amaro producer ABV region`))
+    .filter((query) => query.length >= 10)
+    .slice(0, 2);
+
+  return Array.from(new Set([...base, ...hintQueries].map((query) => normalizeWhitespace(query)).filter(Boolean)));
+};
+
 const hostnameForUrl = (value?: string): string => {
   try {
     if (!value) return '';
@@ -321,12 +343,17 @@ const chooseDescriptionFromWebText = (text: string, name?: string): string | und
   const sentences = splitSentences(text);
   if (sentences.length === 0) return undefined;
 
+  const hasSpecificName = isSpecificAmaroName(name);
   const preferred = sentences.filter((sentence) => {
     const lower = sentence.toLowerCase();
     const hasName = name ? lower.includes(name.toLowerCase()) : false;
     const isProfileLike = /amaro|digestif|herbal|bitter|orange|citrus|botanical|abv|alc/i.test(sentence);
-    return hasName || isProfileLike;
+    return hasSpecificName ? hasName : hasName || isProfileLike;
   });
+
+  if (hasSpecificName && preferred.length === 0) {
+    return undefined;
+  }
 
   const selected = (preferred.length > 0 ? preferred : sentences).slice(0, 2).join(' ');
   return selected ? selected.slice(0, 320) : undefined;
@@ -821,7 +848,8 @@ const analyzeBottleImage = async (imageUrl: string): Promise<BottleAnalysisResul
       .map((hint) => normalizeWhitespace(`${name || ''} ${producer || ''} ${hint} amaro ABV producer region`))
       .filter((query) => query.length >= 8)
       .slice(0, 2);
-    const queries = Array.from(new Set([...baseQueries, ...hintQueries])).slice(0, 4);
+    const corroborationQueries = isSpecificAmaroName(name) ? buildCorroborationQueries(name!, visionHints) : [];
+    const queries = Array.from(new Set([...baseQueries, ...hintQueries, ...corroborationQueries])).slice(0, 6);
     const allResults: TavilySearchResult[] = [];
     const languages: Array<'italian' | 'english'> = ['italian', 'english'];
 
@@ -933,11 +961,11 @@ const analyzeBottleImage = async (imageUrl: string): Promise<BottleAnalysisResul
       producer = confirmedProducer;
     }
 
-    if (!region && confirmedRegion) {
+    if (confirmedRegion && (!region || confirmedRegion.toLowerCase() !== region.toLowerCase())) {
       region = confirmedRegion;
     }
 
-    if (typeof abv !== 'number' && typeof confirmedAbv === 'number') {
+    if (typeof confirmedAbv === 'number' && (typeof abv !== 'number' || Math.abs(confirmedAbv - abv) >= 0.5)) {
       abv = confirmedAbv;
     }
 
