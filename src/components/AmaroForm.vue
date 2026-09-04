@@ -35,7 +35,7 @@ const isSubmitting = ref(false);
 const error = ref<string | null>(null);
 
 const MAX_IMAGE_WIDTH = 1200;
-const WEBP_QUALITY = 0.78;
+const JPEG_QUALITY = 0.82;
 const MAX_UPLOAD_BYTES = 300 * 1024;
 
 const readAsDataUrl = (file: File): Promise<string> =>
@@ -73,7 +73,7 @@ const compressImageToFile = async (file: File): Promise<File> => {
           return;
         }
         resolve(blob);
-      }, 'image/webp', quality);
+      }, 'image/jpeg', quality);
     });
 
   const render = () => {
@@ -84,7 +84,7 @@ const compressImageToFile = async (file: File): Promise<File> => {
   };
 
   render();
-  let blob = await toBlob(WEBP_QUALITY);
+  let blob = await toBlob(JPEG_QUALITY);
   if (blob.size > MAX_UPLOAD_BYTES) {
     blob = await toBlob(0.65);
   }
@@ -98,7 +98,7 @@ const compressImageToFile = async (file: File): Promise<File> => {
   }
 
   const baseName = file.name.replace(/\.[^.]+$/, '') || 'bottle-image';
-  return new File([blob], `${baseName}.webp`, { type: 'image/webp' });
+  return new File([blob], `${baseName}.jpg`, { type: 'image/jpeg' });
 };
 
 const resetAnalysisSignals = () => {
@@ -136,7 +136,7 @@ const uploadSelectedImage = async (): Promise<string> => {
 
   const uploadTarget = await amaroApiClient.requestImageUploadUrl(
     props.idToken,
-    selectedImageFile.value.type || 'image/webp',
+    selectedImageFile.value.type || 'image/jpeg',
     selectedImageFile.value.name
   );
 
