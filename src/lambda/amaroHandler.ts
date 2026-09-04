@@ -123,6 +123,31 @@ const buildS3KeyFromImageUrl = (imageUrl: string): string | undefined => {
 
 const normalizeWhitespace = (value: string): string => value.replace(/\s+/g, ' ').trim();
 
+const hasSentenceMarkers = (value: string): boolean => {
+  const lower = value.toLowerCase();
+  return /\b(in cui|che|per offrire|offrire|alternativa|produzione industriale|with|made with|crafted to|offre|lavora)\b/.test(lower);
+};
+
+const looksLikeBadNameCandidate = (value?: string): boolean => {
+  const candidate = normalizeWhitespace(value || '');
+  if (!candidate) return true;
+  const words = candidate.split(/\s+/).length;
+  if (words > 6) return true;
+  if (candidate.length > 48) return true;
+  if (/[.,;:!?]/.test(candidate)) return true;
+  if (hasSentenceMarkers(candidate)) return true;
+  return false;
+};
+
+const looksLikeBadProducerCandidate = (value?: string): boolean => {
+  const candidate = normalizeWhitespace(value || '');
+  if (!candidate) return true;
+  if (candidate.length > 64) return true;
+  if (candidate.split(/\s+/).length > 8) return true;
+  if (hasSentenceMarkers(candidate)) return true;
+  return false;
+};
+
 const splitSentences = (value: string): string[] =>
   value
     .split(/(?<=[.!?])\s+/)
@@ -237,6 +262,11 @@ const sourcePriorityRank = (url?: string): number => {
   return 4;
 };
 
+const isHighTrustSource = (url?: string): boolean => {
+  const rank = sourcePriorityRank(url);
+  return rank === 0 || rank === 1;
+};
+
 const extractLikelyProducerFromWebText = (text: string): string | undefined => {
   const match = text.match(/(?:produced by|distilled by|crafted by|from)\s+([^.;,]+)/i);
   if (!match?.[1]) return undefined;
@@ -325,6 +355,90 @@ const addVote = (map: Map<string, number>, key: string | undefined, weight: numb
   map.set(normalized, (map.get(normalized) || 0) + weight);
 };
 
+interface WeightedStringEvidence {
+  score: number;
+  sources: Set<string>;
+}
+
+interface WeightedNumberEvidence {
+  score: number;
+  sources: Set<string>;
+}
+
+const addStringEvidence = (
+  map: Map<string, WeightedStringEvidence>,
+  key: string | undefined,
+  weight: number,
+  sourceHost: string,
+  isValid: (value?: string) => boolean
+) => {
+  const normalized = normalizeWhitespace(key || '');
+  if (!normalized || !isValid(normalized)) return;
+  const existing = map.get(normalized);
+  if (existing) {
+    existing.score += weight;
+    if (sourceHost) existing.sources.add(sourceHost);
+  } else {
+    map.set(normalized, {
+      score: weight,
+      sources: sourceHost ? new Set([sourceHost]) : new Set(),
+    });
+  }
+};
+
+const addNumberEvidence = (
+  map: Map<number, WeightedNumberEvidence>,
+  value: number,
+  weight: number,
+  sourceHost: string
+) => {
+  if (!Number.isFinite(value)) return;
+  const existing = map.get(value);
+  if (existing) {
+    existing.score += weight;
+    if (sourceHost) existing.sources.add(sourceHost);
+  } else {
+    map.set(value, {
+      score: weight,
+      sources: sourceHost ? new Set([sourceHost]) : new Set(),
+    });
+  }
+};
+
+const chooseStrongStringEvidence = (
+  map: Map<string, WeightedStringEvidence>,
+  minScore: number,
+  minSources: number
+): string | undefined => {
+  let bestValue: string | undefined;
+  let bestScore = 0;
+  for (const [value, evidence] of map.entries()) {
+    if (evidence.sources.size < minSources) continue;
+    if (evidence.score > bestScore) {
+      bestValue = value;
+      bestScore = evidence.score;
+    }
+  }
+  return bestScore >= minScore ? bestValue : undefined;
+};
+
+const chooseStrongNumberEvidence = (
+  map: Map<number, WeightedNumberEvidence>,
+  minScore: number,
+  minSources: number
+): number | undefined => {
+  let bestValue: number | undefined;
+  let bestScore = 0;
+  for (const [value, evidence] of map.entries()) {
+    if (evidence.sources.size < minSources) continue;
+    if (evidence.score > bestScore) {
+      bestValue = value;
+      bestScore = evidence.score;
+    }
+  }
+  return bestScore >= minScore ? bestValue : undefined;
+};
+
 const extractAbvCandidates = (text: string): number[] => {
   const matches = Array.from(text.matchAll(/(\d{1,2}(?:\.\d)?)\s*%\s*(?:abv|alc\.?\/vol)?/gi));
   const values = matches
@@ -338,13 +452,15 @@ const extractProducerCandidate = (text: string): string | undefined => {
     /(?:produced by|distilled by|crafted by|prodotto da|distillato da|azienda|distilleria|liquorificio)\s+([^.;,]+)/i
   );
   if (!match?.[1]) return undefined;
-  return normalizeWhitespace(match[1]).slice(0, 80);
+  const candidate = normalizeWhitespace(match[1]).slice(0, 80);
+  return looksLikeBadProducerCandidate(candidate) ? undefined : candidate;
 };
 
 const extractNameCandidate = (text: string): string | undefined => {
   const match = text.match(/\b(amaro\s+[a-z0-9'\- ]{2,60})\b/i);
   if (!match?.[1]) return undefined;
-  return normalizeWhitespace(match[1]).slice(0, 80);
+  const candidate = normalizeWhitespace(match[1]).slice(0, 80);
+  return looksLikeBadNameCandidate(candidate) ? undefined : candidate;
 };
 
 const chooseTopVoted = (votes: Map<string, number>, minScore = 2): string | undefined => {
@@ -470,10 +586,35 @@ const tavilyExtract = async (urls: string[], query: string): Promise<Map<string,
 };
 
 const pickLikelyName = (lines: string[]): string | undefined => {
-  const preferred = lines.find((line) => /amaro\b/i.test(line));
-  if (preferred) return normalizeWhitespace(preferred);
-  const firstLongLine = lines.find((line) => line.length >= 6 && line.length <= 48);
-  return firstLongLine ? normalizeWhitespace(firstLongLine) : undefined;
+  const candidates = lines
+    .map((line) => normalizeWhitespace(line))
+    .filter((line) => line.length >= 4 && line.length <= 48)
+    .filter((line) => !/%/.test(line));
+
+  let bestLine: string | undefined;
+  let bestScore = -Infinity;
+  for (const line of candidates) {
+    const lower = line.toLowerCase();
+    const words = line.split(/\s+/).length;
+    const letters = line.replace(/[^a-z]/gi, '');
+    const uppercaseRatio = letters.length > 0 ? (letters.match(/[A-Z]/g)?.length || 0) / letters.length : 0;
+
+    let score = 0;
+    if (/\bamaro\b/i.test(line)) score += 2;
+    if (words <= 4) score += 2;
+    if (words >= 7) score -= 2;
+    if (uppercaseRatio > 0.55) score += 1;
+    if (hasSentenceMarkers(lower)) score -= 3;
+    if (/\b(note|sentori|aromi|degustazione|prodotto)\b/i.test(line)) score -= 2;
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestLine = line;
+    }
+  }
+
+  if (looksLikeBadNameCandidate(bestLine)) return undefined;
+  return bestLine;
 };
 
 const pickLikelyProducer = (lines: string[], name?: string): string | undefined => {
@@ -481,7 +622,8 @@ const pickLikelyProducer = (lines: string[], name?: string): string | undefined 
     if (name && normalizeWhitespace(line) === name) return false;
     return /distiller|liquor|spirits|azienda|house|fratelli|fratello|brothers/i.test(line);
   });
-  return candidate ? normalizeWhitespace(candidate) : undefined;
+  const normalized = candidate ? normalizeWhitespace(candidate) : undefined;
+  return looksLikeBadProducerCandidate(normalized) ? undefined : normalized;
 };
 
 const analyzeBottleImage = async (imageUrl: string): Promise<BottleAnalysisResult> => {
@@ -598,6 +740,11 @@ const analyzeBottleImage = async (imageUrl: string): Promise<BottleAnalysisResul
     const regionVotes = new Map<string, number>();
     const abvVotes = new Map<number, number>();
 
+    const nameEvidence = new Map<string, WeightedStringEvidence>();
+    const producerEvidence = new Map<string, WeightedStringEvidence>();
+    const regionEvidence = new Map<string, WeightedStringEvidence>();
+    const abvEvidence = new Map<number, WeightedNumberEvidence>();
+
     if (ocrName) addVote(nameVotes, ocrName, 2.2);
     if (ocrProducer) addVote(producerVotes, ocrProducer, 2.0);
     if (ocrRegion) addVote(regionVotes, ocrRegion, 1.8);
@@ -610,6 +757,7 @@ const analyzeBottleImage = async (imageUrl: string): Promise<BottleAnalysisResul
       const rank = sourcePriorityRank(result.url);
       const relevancy = Math.max(0, Math.min(1.5, result.score || 0));
       let weight = sourceBaseWeight(rank) + relevancy;
+      const host = hostnameForUrl(result.url);
 
       const lowerText = text.toLowerCase();
       if (ocrName && lowerText.includes(ocrName.toLowerCase())) weight += 0.8;
@@ -622,12 +770,39 @@ const analyzeBottleImage = async (imageUrl: string): Promise<BottleAnalysisResul
       for (const abvValue of extractAbvCandidates(text)) {
         abvVotes.set(abvValue, (abvVotes.get(abvValue) || 0) + weight * 1.1);
       }
+
+      if (isHighTrustSource(result.url)) {
+        addStringEvidence(nameEvidence, extractNameCandidate(text), weight, host, (value) => !looksLikeBadNameCandidate(value));
+        addStringEvidence(producerEvidence, extractProducerCandidate(text), weight, host, (value) => !looksLikeBadProducerCandidate(value));
+        addStringEvidence(regionEvidence, extractRegion(text), weight, host, () => true);
+        for (const abvValue of extractAbvCandidates(text)) {
+          addNumberEvidence(abvEvidence, abvValue, weight, host);
+        }
+      }
     });
 
-    name = chooseTopVoted(nameVotes, 2.2) || name;
-    producer = chooseTopVoted(producerVotes, 2.2) || producer;
-    region = chooseTopVoted(regionVotes, 2.0) || region;
-    abv = chooseTopVotedNumber(abvVotes, 2.0) ?? abv;
+    const confirmedName = chooseStrongStringEvidence(nameEvidence, 5.2, 2);
+    const confirmedProducer = chooseStrongStringEvidence(producerEvidence, 4.8, 2);
+    const confirmedRegion = chooseStrongStringEvidence(regionEvidence, 4.0, 2);
+    const confirmedAbv = chooseStrongNumberEvidence(abvEvidence, 4.2, 2);
+
+    if (!name || looksLikeBadNameCandidate(name)) {
+      name = confirmedName || chooseTopVoted(nameVotes, 2.2) || name;
+    }
+
+    if (!producer || looksLikeBadProducerCandidate(producer)) {
+      producer = confirmedProducer || chooseTopVoted(producerVotes, 2.2) || producer;
+    } else if (confirmedProducer) {
+      producer = confirmedProducer;
+    }
+
+    if (!region && confirmedRegion) {
+      region = confirmedRegion;
+    }
+
+    if (typeof abv !== 'number' && typeof confirmedAbv === 'number') {
+      abv = confirmedAbv;
+    }
 
     if (!producer) {
       producer = extractLikelyProducerFromWebText(webText) || producer;
