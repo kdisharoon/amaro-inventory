@@ -8,6 +8,10 @@ const props = defineProps<{
   idToken?: string | null;
 }>();
 
+const emit = defineEmits<{
+  (e: 'cancel'): void;
+}>();
+
 const amaroStore = useAmaroStore();
 
 const name = ref('');
@@ -244,6 +248,12 @@ const submit = async () => {
     isSubmitting.value = false;
   }
 };
+
+const cancel = () => {
+  resetForm();
+  error.value = null;
+  emit('cancel');
+};
 </script>
 
 <template>
@@ -301,7 +311,7 @@ const submit = async () => {
       <input id="flavor-notes-input" v-model="flavorNotes" placeholder="Flavor notes (comma-separated)" />
     </div>
 
-    <div class="row">
+    <div class="row action-row">
       <label>Sweetness</label>
       <select v-model="sweetnessLevel">
         <option value="not-specified">Not specified</option>
@@ -315,7 +325,10 @@ const submit = async () => {
         <option value="opened">Opened</option>
         <option value="finished">Finished</option>
       </select>
-      <button type="submit" :disabled="isSubmitting">{{ isSubmitting ? 'Saving...' : 'Add Bottle' }}</button>
+      <div class="action-buttons">
+        <button type="button" class="secondary-btn" @click="cancel" :disabled="isSubmitting">Cancel</button>
+        <button type="submit" :disabled="isSubmitting">{{ isSubmitting ? 'Saving...' : 'Add Bottle' }}</button>
+      </div>
     </div>
 
     <p v-if="error" class="form-error">{{ error }}</p>
@@ -336,6 +349,8 @@ const submit = async () => {
 .image-action-btn { background: #e2e8f0; color: #1f2937; border-radius: 6px; padding: 0.45rem 0.7rem; font-size: 0.86rem; cursor: pointer; }
 .secondary-btn { background: #e2e8f0 !important; color: #1f2937 !important; }
 .secondary-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.action-row { align-items: center; }
+.action-buttons { display: inline-flex; gap: 0.5rem; margin-left: auto; }
 .image-preview { border: 1px dashed #cbd5e0; border-radius: 8px; padding: 0.5rem; background: #fff; }
 .image-preview-label { font-size: 0.78rem; color: #64748b; margin-bottom: 0.35rem; }
 .image-preview img { width: 100%; max-height: 240px; object-fit: contain; border-radius: 6px; }

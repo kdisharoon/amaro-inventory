@@ -137,6 +137,10 @@ const handleAddBottleClick = () => {
   });
 };
 
+const handleFormCancel = () => {
+  showAddForm.value = false;
+};
+
 const signOut = () => {
   idToken.value = null;
   signedInEmail.value = null;
@@ -185,7 +189,7 @@ onMounted(() => {
         <p v-if="authMessage" class="auth-message">{{ authMessage }}</p>
       </section>
 
-      <AmaroForm v-if="showAddForm" :id-token="idToken" />
+      <AmaroForm v-if="showAddForm" :id-token="idToken" @cancel="handleFormCancel" />
 
       <AmaroFilterBar />
 
