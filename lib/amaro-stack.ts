@@ -95,6 +95,12 @@ export class AmaroStack extends cdk.Stack {
         resources: ['*'],
       })
     );
+    amaroLambda.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['translate:TranslateText'],
+        resources: ['*'],
+      })
+    );
 
     // 3. REST API Gateway
     const api = new apigateway.RestApi(this, 'AmaroApiGateway', {

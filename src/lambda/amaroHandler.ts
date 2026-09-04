@@ -3,6 +3,7 @@ import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, ScanCommand, GetCommand, PutCommand } from '@aws-sdk/lib-dynamodb';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { DetectTextCommand, RekognitionClient } from '@aws-sdk/client-rekognition';
+import { TranslateClient, TranslateTextCommand } from '@aws-sdk/client-translate';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { randomUUID } from 'crypto';
 
@@ -10,6 +11,7 @@ const client = new DynamoDBClient({});
 const docClient = DynamoDBDocumentClient.from(client);
 const s3Client = new S3Client({});
 const rekognitionClient = new RekognitionClient({});
+const translateClient = new TranslateClient({});
 
 const TABLE_NAME = process.env.TABLE_NAME || 'AmaroTable';
 const IMAGE_BUCKET_NAME = process.env.IMAGE_BUCKET_NAME || '';
@@ -91,6 +93,7 @@ const SEARCH_QUERY_TEMPLATES = [
 const SOURCE_PRIORITY_KEYWORDS = {
   producer: ['distilleria', 'distillery', 'liquorificio', 'azienda', 'official', 'produttore', 'spirits'],
   retail: ['shop', 'store', 'retail', 'wine', 'enoteca', 'spirits', 'liquor', 'buy', 'acquista'],
+  reddit: ['reddit.com', 'redd.it'],
   blog: ['blog', 'magazine', 'journal', 'review', 'recensione', 'medium', 'substack'],
 };
 
@@ -156,6 +159,8 @@ const extractFlavorNotesFromDescription = (text: string): string[] => {
   const patterns = [
     /(?:notes?|aromas?|hints?|flavors?)\s+of\s+([^.;]+)/gi,
     /(?:with|featuring)\s+([^.;]+?)\s+(?:notes?|aromas?|hints?|flavors?)/gi,
+    /(?:note|sentori|aromi)\s+di\s+([^.;]+)/gi,
+    /(?:con)\s+([^.;]+?)\s+(?:note|sentori|aromi)/gi,
   ];
 
   for (const pattern of patterns) {
@@ -166,8 +171,24 @@ const extractFlavorNotesFromDescription = (text: string): string[] => {
   }
 
   const splitNotes = noteMatches
-    .flatMap((segment) => segment.split(/,| and |\//i))
-    .map((entry) => normalizeWhitespace(entry.replace(/\b(a|an|the|soft|gentle|balanced|light|subtle)\b/gi, '')))
+    .flatMap((segment) => segment.split(/,| and | e |\//i))
+    .map((entry) => normalizeWhitespace(entry.replace(/\b(a|an|the|soft|gentle|balanced|light|subtle|del|della|delle|degli|di|con)\b/gi, '')))
+    .map((entry) =>
+      entry
+        .replace(/\berbe aromatiche\b/gi, 'herbal')
+        .replace(/\bagrumi\b/gi, 'citrus')
+        .replace(/\barancia\b/gi, 'orange')
+        .replace(/\blimone\b/gi, 'lemon')
+        .replace(/\berbe\b/gi, 'herbs')
+        .replace(/\bginepro\b/gi, 'juniper')
+        .replace(/\bcannella\b/gi, 'cinnamon')
+        .replace(/\bvaniglia\b/gi, 'vanilla')
+        .replace(/\bmenta\b/gi, 'mint')
+        .replace(/\brabarbaro\b/gi, 'rhubarb')
+        .replace(/\bliquirizia\b/gi, 'licorice')
+        .replace(/\bchina\b/gi, 'quinine')
+        .replace(/\bcaramello\b/gi, 'caramel')
+    )
     .filter((entry) => entry.length >= 3 && entry.length <= 40);
 
   return Array.from(new Set(splitNotes)).slice(0, 6);
@@ -205,14 +226,15 @@ const hostnameForUrl = (value?: string): string => {
 
 const sourcePriorityRank = (url?: string): number => {
   const host = hostnameForUrl(url);
-  if (!host) return 3;
+  if (!host) return 4;
 
   const includesAny = (terms: string[]): boolean => terms.some((term) => host.includes(term));
 
   if (includesAny(SOURCE_PRIORITY_KEYWORDS.producer)) return 0;
   if (includesAny(SOURCE_PRIORITY_KEYWORDS.retail)) return 1;
-  if (includesAny(SOURCE_PRIORITY_KEYWORDS.blog)) return 2;
-  return 3;
+  if (includesAny(SOURCE_PRIORITY_KEYWORDS.reddit)) return 2;
+  if (includesAny(SOURCE_PRIORITY_KEYWORDS.blog)) return 3;
+  return 4;
 };
 
 const extractLikelyProducerFromWebText = (text: string): string | undefined => {
@@ -261,6 +283,92 @@ const scoreConfidence = (
     description: descriptionConfidence,
     flavorNotes: flavorNotesConfidence,
   };
+};
+
+const sourceBaseWeight = (rank: number): number => {
+  if (rank === 0) return 4.0;
+  if (rank === 1) return 3.0;
+  if (rank === 2) return 2.0;
+  if (rank === 3) return 1.4;
+  return 1.0;
+};
+
+const looksItalian = (text: string): boolean => {
+  const sample = text.toLowerCase();
+  if (!sample) return false;
+  return /\b(il|la|gli|della|delle|degli|amaro|liquore|erbe|sentori|aromi|gradazione|prodotto)\b/.test(sample);
+};
+
+const translateToEnglishIfNeeded = async (text?: string): Promise<string | undefined> => {
+  const value = normalizeWhitespace(text || '');
+  if (!value || !looksItalian(value)) return value || undefined;
+
+  try {
+    const response = await translateClient.send(
+      new TranslateTextCommand({
+        Text: value.slice(0, 4500),
+        SourceLanguageCode: 'it',
+        TargetLanguageCode: 'en',
+      })
+    );
+    const translated = normalizeWhitespace(response.TranslatedText || '');
+    return translated || value;
+  } catch (error) {
+    console.error('TranslateText failed', error);
+    return value;
+  }
+};
+
+const addVote = (map: Map<string, number>, key: string | undefined, weight: number) => {
+  const normalized = normalizeWhitespace(key || '');
+  if (!normalized) return;
+  map.set(normalized, (map.get(normalized) || 0) + weight);
+};
+
+const extractAbvCandidates = (text: string): number[] => {
+  const matches = Array.from(text.matchAll(/(\d{1,2}(?:\.\d)?)\s*%\s*(?:abv|alc\.?\/vol)?/gi));
+  const values = matches
+    .map((match) => Number(match[1]))
+    .filter((value) => Number.isFinite(value) && value >= 5 && value <= 80);
+  return Array.from(new Set(values));
+};
+
+const extractProducerCandidate = (text: string): string | undefined => {
+  const match = text.match(
+    /(?:produced by|distilled by|crafted by|prodotto da|distillato da|azienda|distilleria|liquorificio)\s+([^.;,]+)/i
+  );
+  if (!match?.[1]) return undefined;
+  return normalizeWhitespace(match[1]).slice(0, 80);
+};
+
+const extractNameCandidate = (text: string): string | undefined => {
+  const match = text.match(/\b(amaro\s+[a-z0-9'\- ]{2,60})\b/i);
+  if (!match?.[1]) return undefined;
+  return normalizeWhitespace(match[1]).slice(0, 80);
+};
+
+const chooseTopVoted = (votes: Map<string, number>, minScore = 2): string | undefined => {
+  let best: string | undefined;
+  let bestScore = 0;
+  for (const [value, score] of votes.entries()) {
+    if (score > bestScore) {
+      best = value;
+      bestScore = score;
+    }
+  }
+  return bestScore >= minScore ? best : undefined;
+};
+
+const chooseTopVotedNumber = (votes: Map<number, number>, minScore = 2): number | undefined => {
+  let best: number | undefined;
+  let bestScore = 0;
+  for (const [value, score] of votes.entries()) {
+    if (score > bestScore) {
+      best = value;
+      bestScore = score;
+    }
+  }
+  return bestScore >= minScore ? best : undefined;
 };
 
 const fetchJsonWithTimeout = async (url: string, init: RequestInit, timeoutMs: number): Promise<any> => {
@@ -315,8 +423,8 @@ const tavilySearch = async (query: string, language: 'italian' | 'english'): Pro
   return Array.isArray(payload.results) ? payload.results : [];
 };
 
-const tavilyExtract = async (urls: string[], query: string): Promise<string> => {
-  if (!TAVILY_API_KEY || urls.length === 0) return '';
+const tavilyExtract = async (urls: string[], query: string): Promise<Map<string, string>> => {
+  if (!TAVILY_API_KEY || urls.length === 0) return new Map();
 
   let response: Response;
   try {
@@ -341,19 +449,24 @@ const tavilyExtract = async (urls: string[], query: string): Promise<string> => 
     );
   } catch (error) {
     console.error('Tavily extract request failed', error);
-    return '';
+    return new Map();
   }
 
   if (!response.ok) {
     console.error('Tavily extract failed', response.status);
-    return '';
+    return new Map();
   }
 
   const payload = (await response.json()) as TavilyExtractResponse;
-  const contents = (payload.results || [])
-    .map((item) => normalizeWhitespace(item.raw_content || ''))
-    .filter(Boolean);
-  return contents.join(' ');
+  const output = new Map<string, string>();
+  for (const item of payload.results || []) {
+    const url = normalizeWhitespace(item.url || '');
+    const content = normalizeWhitespace(item.raw_content || '');
+    if (url && content) {
+      output.set(url, content);
+    }
+  }
+  return output;
 };
 
 const pickLikelyName = (lines: string[]): string | undefined => {
@@ -413,10 +526,15 @@ const analyzeBottleImage = async (imageUrl: string): Promise<BottleAnalysisResul
     .filter(Boolean);
 
   const combinedText = lines.join(' | ');
-  let name = pickLikelyName(lines);
-  let producer = pickLikelyProducer(lines, name);
-  let region = extractRegion(combinedText);
-  let abv = extractAbv(combinedText);
+  const ocrName = pickLikelyName(lines);
+  const ocrProducer = pickLikelyProducer(lines, ocrName);
+  const ocrRegion = extractRegion(combinedText);
+  const ocrAbv = extractAbv(combinedText);
+
+  let name = ocrName;
+  let producer = ocrProducer;
+  let region = ocrRegion;
+  let abv = ocrAbv;
   const sweetnessLevel = detectSweetness(combinedText);
 
   let description: string | undefined;
@@ -464,11 +582,52 @@ const analyzeBottleImage = async (imageUrl: string): Promise<BottleAnalysisResul
       .slice(0, 2)
       .map((result) => (result.url || '').trim())
       .filter(Boolean);
-    const extractText = await tavilyExtract(
+    const extractByUrl = await tavilyExtract(
       extractUrls,
       `${name || ''} ${producer || ''} amaro note degustazione flavor notes ABV gradazione regione`
     );
-    const webText = normalizeWhitespace(`${snippetText} ${extractText}`);
+    const sourceTexts = topResults.map((result) => {
+      const url = normalizeWhitespace(result.url || '');
+      const extracted = extractByUrl.get(url) || '';
+      return normalizeWhitespace(`${result.title || ''}. ${result.content || ''}. ${extracted}`);
+    });
+    const webText = normalizeWhitespace(`${snippetText} ${sourceTexts.join(' ')}`);
+
+    const nameVotes = new Map<string, number>();
+    const producerVotes = new Map<string, number>();
+    const regionVotes = new Map<string, number>();
+    const abvVotes = new Map<number, number>();
+
+    if (ocrName) addVote(nameVotes, ocrName, 2.2);
+    if (ocrProducer) addVote(producerVotes, ocrProducer, 2.0);
+    if (ocrRegion) addVote(regionVotes, ocrRegion, 1.8);
+    if (typeof ocrAbv === 'number') abvVotes.set(ocrAbv, (abvVotes.get(ocrAbv) || 0) + 1.8);
+
+    topResults.forEach((result, index) => {
+      const text = sourceTexts[index] || '';
+      if (!text) return;
+
+      const rank = sourcePriorityRank(result.url);
+      const relevancy = Math.max(0, Math.min(1.5, result.score || 0));
+      let weight = sourceBaseWeight(rank) + relevancy;
+
+      const lowerText = text.toLowerCase();
+      if (ocrName && lowerText.includes(ocrName.toLowerCase())) weight += 0.8;
+      if (ocrProducer && lowerText.includes(ocrProducer.toLowerCase())) weight += 0.6;
+
+      addVote(nameVotes, extractNameCandidate(text), weight * 0.9);
+      addVote(producerVotes, extractProducerCandidate(text), weight * 1.0);
+      addVote(regionVotes, extractRegion(text), weight * 0.9);
+
+      for (const abvValue of extractAbvCandidates(text)) {
+        abvVotes.set(abvValue, (abvVotes.get(abvValue) || 0) + weight * 1.1);
+      }
+    });
+
+    name = chooseTopVoted(nameVotes, 2.2) || name;
+    producer = chooseTopVoted(producerVotes, 2.2) || producer;
+    region = chooseTopVoted(regionVotes, 2.0) || region;
+    abv = chooseTopVotedNumber(abvVotes, 2.0) ?? abv;
 
     if (!producer) {
       producer = extractLikelyProducerFromWebText(webText) || producer;
@@ -496,6 +655,11 @@ const analyzeBottleImage = async (imageUrl: string): Promise<BottleAnalysisResul
     description = fallback ? `Label text detected: ${fallback}` : undefined;
   }
 
+  if (flavorNotes.length === 0 && description) {
+    flavorNotes = extractFlavorNotesFromDescription(description);
+  }
+
+  description = await translateToEnglishIfNeeded(description);
   if (flavorNotes.length === 0 && description) {
     flavorNotes = extractFlavorNotesFromDescription(description);
   }
