@@ -17,6 +17,8 @@ const TABLE_NAME = process.env.TABLE_NAME || 'AmaroTable';
 const IMAGE_BUCKET_NAME = process.env.IMAGE_BUCKET_NAME || '';
 const IMAGE_BASE_URL = process.env.IMAGE_BASE_URL || '';
 const TAVILY_API_KEY = process.env.TAVILY_API_KEY || '';
+const GOOGLE_VISION_API_KEY = process.env.GOOGLE_VISION_API_KEY || '';
+const VISION_WEB_DETECTION_ENABLED = (process.env.VISION_WEB_DETECTION_ENABLED || 'false').toLowerCase() === 'true';
 
 export interface AmaroItem {
   id: string;
@@ -74,6 +76,26 @@ interface TavilyExtractResponse {
   results?: TavilyExtractResult[];
 }
 
+interface VisionWebEntity {
+  description?: string;
+  score?: number;
+}
+
+interface VisionBestGuessLabel {
+  label?: string;
+}
+
+interface VisionWebDetection {
+  webEntities?: VisionWebEntity[];
+  bestGuessLabels?: VisionBestGuessLabel[];
+}
+
+interface VisionAnnotateResponse {
+  responses?: Array<{
+    webDetection?: VisionWebDetection;
+  }>;
+}
+
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
 const ADMIN_GOOGLE_EMAIL = (process.env.ADMIN_GOOGLE_EMAIL || 'kdisharoon@gmail.com').toLowerCase();
 
@@ -98,6 +120,7 @@ const SOURCE_PRIORITY_KEYWORDS = {
 };
 
 const TAVILY_TIMEOUT_MS = 4500;
+const GOOGLE_VISION_TIMEOUT_MS = 4000;
 
 
 const sanitizeExtension = (contentType: string, fileName?: string): string => {
@@ -498,6 +521,65 @@ const fetchJsonWithTimeout = async (url: string, init: RequestInit, timeoutMs: n
   }
 };
 
+const googleVisionWebDetect = async (imageUrl: string): Promise<string[]> => {
+  if (!VISION_WEB_DETECTION_ENABLED || !GOOGLE_VISION_API_KEY) return [];
+
+  let response: Response;
+  try {
+    response = await fetchJsonWithTimeout(
+      `https://vision.googleapis.com/v1/images:annotate?key=${encodeURIComponent(GOOGLE_VISION_API_KEY)}`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          requests: [
+            {
+              image: {
+                source: {
+                  imageUri: imageUrl,
+                },
+              },
+              features: [
+                {
+                  type: 'WEB_DETECTION',
+                  maxResults: 8,
+                },
+              ],
+            },
+          ],
+        }),
+      },
+      GOOGLE_VISION_TIMEOUT_MS
+    );
+  } catch (error) {
+    console.error('Google Vision web detection request failed', error);
+    return [];
+  }
+
+  if (!response.ok) {
+    console.error('Google Vision web detection failed', response.status);
+    return [];
+  }
+
+  const payload = (await response.json()) as VisionAnnotateResponse;
+  const detection = payload.responses?.[0]?.webDetection;
+  if (!detection) return [];
+
+  const bestGuesses = (detection.bestGuessLabels || [])
+    .map((entry) => normalizeWhitespace(entry.label || ''))
+    .filter((entry) => entry.length >= 3 && entry.length <= 60);
+
+  const entityHints = (detection.webEntities || [])
+    .filter((entry) => (entry.score || 0) >= 0.3)
+    .map((entry) => normalizeWhitespace(entry.description || ''))
+    .filter((entry) => entry.length >= 3 && entry.length <= 60)
+    .filter((entry) => !/^amaro$/i.test(entry));
+
+  return Array.from(new Set([...bestGuesses, ...entityHints])).slice(0, 4);
+};
+
 const tavilySearch = async (query: string, language: 'italian' | 'english'): Promise<TavilySearchResult[]> => {
   if (!TAVILY_API_KEY) return [];
 
@@ -682,9 +764,15 @@ const analyzeBottleImage = async (imageUrl: string): Promise<BottleAnalysisResul
   let description: string | undefined;
   let flavorNotes: string[] = [];
   let sourceCount = 0;
+  const visionHints = await googleVisionWebDetect(imageUrl);
 
   if (TAVILY_API_KEY && (name || producer)) {
-    const queries = buildSearchQueries(name, producer, region).slice(0, 2);
+    const baseQueries = buildSearchQueries(name, producer, region).slice(0, 2);
+    const hintQueries = visionHints
+      .map((hint) => normalizeWhitespace(`${name || ''} ${producer || ''} ${hint} amaro ABV producer region`))
+      .filter((query) => query.length >= 8)
+      .slice(0, 2);
+    const queries = Array.from(new Set([...baseQueries, ...hintQueries])).slice(0, 4);
     const allResults: TavilySearchResult[] = [];
     const languages: Array<'italian' | 'english'> = ['italian', 'english'];
 
