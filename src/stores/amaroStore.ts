@@ -101,6 +101,22 @@ export const useAmaroStore = defineStore('amaro', {
       }
     },
 
+    async deleteBottle(id: string, idToken?: string): Promise<boolean> {
+      this.isLoading = true;
+      this.error = null;
+      try {
+        await amaroApiClient.deleteBottle(id, idToken);
+        this.bottles = this.bottles.filter((bottle) => bottle.id !== id);
+        return true;
+      } catch (err: any) {
+        this.error = err?.message || 'Failed to delete amaro bottle.';
+        console.error('Error in amaroStore.deleteBottle:', err);
+        return false;
+      } finally {
+        this.isLoading = false;
+      }
+    },
+
     setFilters(partialFilters: Partial<AmaroFilterState>): void {
       this.filters = { ...this.filters, ...partialFilters };
     },

@@ -157,6 +157,18 @@ const handleEditBottle = (bottle: AmaroBottle) => {
   authMessage.value = '';
 };
 
+const handleDeleteBottle = async (bottle: AmaroBottle) => {
+  const confirmed = window.confirm(`Delete ${bottle.name}? This action cannot be undone.`);
+  if (!confirmed) {
+    return;
+  }
+
+  const deleted = await amaroStore.deleteBottle(bottle.id, idToken.value || undefined);
+  if (!deleted) {
+    authMessage.value = 'Could not delete this bottle. Please try again.';
+  }
+};
+
 
 const signOut = () => {
   idToken.value = null;
@@ -238,6 +250,7 @@ onMounted(() => {
           :key="bottle.id"
           :bottle="bottle"
           @edit="handleEditBottle"
+          @delete="handleDeleteBottle"
         />
       </div>
     </main>

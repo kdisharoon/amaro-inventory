@@ -135,6 +135,28 @@ class AmaroApiClient {
   }
 
   /**
+   * Delete an amaro bottle via DELETE /amaros/{id}
+   */
+  async deleteBottle(id: string, idToken?: string): Promise<void> {
+    const headers: Record<string, string> = {
+      'Accept': 'application/json',
+    };
+
+    if (idToken) {
+      headers.Authorization = `Bearer ${idToken}`;
+    }
+
+    const response = await runFetch(`${this.baseUrl}/amaros/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      headers,
+    }, 'Failed to delete amaro bottle');
+
+    if (!response.ok) {
+      throw await buildApiError(response, 'Failed to delete amaro bottle');
+    }
+  }
+
+  /**
    * Request a presigned URL for uploading a bottle image to S3.
    */
   async requestImageUploadUrl(idToken: string, contentType: string, fileName?: string): Promise<ImageUploadTarget> {

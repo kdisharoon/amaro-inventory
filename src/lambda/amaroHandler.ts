@@ -1291,6 +1291,51 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
       };
     }
 
+    // DELETE /amaros/{id} - Delete an amaro bottle
+    if (httpMethod === 'DELETE' && pathParameters?.id) {
+      const idToken = extractBearerToken(event.headers);
+      if (!idToken) {
+        return {
+          statusCode: 401,
+          headers: corsHeaders,
+          body: JSON.stringify({ message: 'Missing bearer token.' }),
+        };
+      }
+
+      const authorized = await isAuthorizedAdmin(idToken);
+      if (!authorized) {
+        return {
+          statusCode: 403,
+          headers: corsHeaders,
+          body: JSON.stringify({ message: 'Forbidden. This account is not authorized to delete bottles.' }),
+        };
+      }
+
+      const existingBottle = await docClient.send(new GetCommand({
+        TableName: TABLE_NAME,
+        Key: { id: pathParameters.id },
+      }));
+
+      if (!existingBottle.Item) {
+        return {
+          statusCode: 404,
+          headers: corsHeaders,
+          body: JSON.stringify({ message: `Amaro with ID '${pathParameters.id}' not found.` }),
+        };
+      }
+
+      await docClient.send(new DeleteCommand({
+        TableName: TABLE_NAME,
+        Key: { id: pathParameters.id },
+      }));
+
+      return {
+        statusCode: 200,
+        headers: corsHeaders,
+        body: JSON.stringify({ id: pathParameters.id, deleted: true }),
+      };
+    }
+
     // POST /amaros - Create or update an amaro bottle
     if (httpMethod === 'POST') {
       const idToken = extractBearerToken(event.headers);

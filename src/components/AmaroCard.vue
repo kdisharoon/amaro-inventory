@@ -7,6 +7,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'edit', bottle: AmaroBottle): void;
+  (e: 'delete', bottle: AmaroBottle): void;
 }>();
 
 const formatSweetness = (level?: string): string => {
@@ -32,6 +33,7 @@ const formatStatus = (status?: string): string => {
 };
 
 const handleEdit = () => emit('edit', props.bottle);
+const handleDelete = () => emit('delete', props.bottle);
 </script>
 
 <template>
@@ -79,6 +81,7 @@ const handleEdit = () => emit('edit', props.bottle);
 
     <div class="card-actions">
       <button type="button" class="edit-btn" @click="handleEdit">Edit</button>
+      <button type="button" class="delete-btn" @click="handleDelete">Delete</button>
     </div>
   </div>
 </template>
@@ -244,6 +247,11 @@ const handleEdit = () => emit('edit', props.bottle);
 .edit-btn {
   background: #e2e8f0;
   color: #1f2937;
+}
+
+.delete-btn {
+  background: #fee2e2;
+  color: #991b1b;
 }
 
 .note-tag {
