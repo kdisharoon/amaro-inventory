@@ -34,15 +34,32 @@ declare global {
 const API_BASE_URL =
   window.__APP_CONFIG__?.VITE_API_ENDPOINT || import.meta.env.VITE_API_ENDPOINT || '';
 
+const getJsonBody = async <T>(response: Response, fallbackMessage: string): Promise<T> => {
+  const contentType = response.headers.get('content-type') || '';
+  if (!contentType.includes('application/json') && !contentType.includes('+json')) {
+    const text = await response.text();
+    if (text.trim().startsWith('<')) {
+      throw new Error('API endpoint is misconfigured or returned HTML instead of JSON. Check the deployed runtime config and API URL settings.');
+    }
+    throw new Error(`${fallbackMessage}. Received unexpected response: ${text.slice(0, 160)}`);
+  }
+
+  return response.json() as Promise<T>;
+};
+
 const buildApiError = async (response: Response, fallbackMessage: string): Promise<Error> => {
   let detail = '';
   try {
-    const payload = await response.json();
+    const payload = await getJsonBody<{
+      message?: string;
+      error?: string;
+    }>(response, fallbackMessage);
     const message = typeof payload?.message === 'string' ? payload.message : '';
     const error = typeof payload?.error === 'string' ? payload.error : '';
     detail = [message, error].filter(Boolean).join(' - ');
-  } catch {
-    // Ignore JSON parse failures and use fallback only.
+  } catch (error) {
+    const message = error instanceof Error ? error.message : '';
+    detail = message || 'Response was not valid JSON';
   }
 
   const suffix = detail ? `: ${detail}` : '';
@@ -68,6 +85,10 @@ class AmaroApiClient {
    * Fetch all amari bottles from GET /amaros
    */
   async getBottles(): Promise<AmaroBottle[]> {
+    if (!this.baseUrl) {
+      throw new Error('API endpoint is not configured. Set VITE_API_ENDPOINT or deploy the runtime config script with the API URL.');
+    }
+
     const response = await runFetch(`${this.baseUrl}/amaros`, {
       method: 'GET',
       headers: {
@@ -79,7 +100,7 @@ class AmaroApiClient {
       throw new Error(`Failed to fetch amari catalog (Status ${response.status})`);
     }
 
-    return response.json();
+    return getJsonBody<AmaroBottle[]>(response, 'Failed to fetch amari catalog');
   }
 
   /**
@@ -105,7 +126,7 @@ class AmaroApiClient {
       throw await buildApiError(response, 'Failed to add amaro bottle');
     }
 
-    return response.json();
+    return getJsonBody<AmaroBottle>(response, 'Failed to add amaro bottle');
   }
 
   /**
@@ -131,7 +152,7 @@ class AmaroApiClient {
       throw await buildApiError(response, 'Failed to update amaro bottle');
     }
 
-    return response.json();
+    return getJsonBody<AmaroBottle>(response, 'Failed to update amaro bottle');
   }
 
   /**
@@ -174,7 +195,7 @@ class AmaroApiClient {
       throw await buildApiError(response, 'Failed to request image upload URL');
     }
 
-    return response.json() as Promise<ImageUploadTarget>;
+    return getJsonBody<ImageUploadTarget>(response, 'Failed to request image upload URL');
   }
 
   /**
@@ -212,7 +233,7 @@ class AmaroApiClient {
       throw await buildApiError(response, 'Failed to analyze bottle image');
     }
 
-    return response.json() as Promise<BottleImageAnalysisResult>;
+    return getJsonBody<BottleImageAnalysisResult>(response, 'Failed to analyze bottle image');
   }
 }
 
