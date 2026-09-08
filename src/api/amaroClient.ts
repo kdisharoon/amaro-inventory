@@ -164,7 +164,7 @@ class AmaroApiClient {
       headers.Authorization = `Bearer ${idToken}`;
     }
 
-    const baseUrl = this.getConfiguredBaseUrl();
+    const baseUrl = await this.getConfiguredBaseUrl();
 
     const response = await runFetch(`${baseUrl}/amaros`, {
       method: 'POST',
@@ -192,7 +192,7 @@ class AmaroApiClient {
       headers.Authorization = `Bearer ${idToken}`;
     }
 
-    const baseUrl = this.getConfiguredBaseUrl();
+    const baseUrl = await this.getConfiguredBaseUrl();
 
     const response = await runFetch(`${baseUrl}/amaros/${encodeURIComponent(id)}`, {
       method: 'PUT',
@@ -219,7 +219,7 @@ class AmaroApiClient {
       headers.Authorization = `Bearer ${idToken}`;
     }
 
-    const baseUrl = this.getConfiguredBaseUrl();
+    const baseUrl = await this.getConfiguredBaseUrl();
 
     const response = await runFetch(`${baseUrl}/amaros/${encodeURIComponent(id)}`, {
       method: 'DELETE',
