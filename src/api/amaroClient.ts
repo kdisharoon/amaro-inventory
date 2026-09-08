@@ -38,6 +38,44 @@ const getApiBaseUrl = (): string => {
   return configuredBaseUrl.replace(/\/$/, '');
 };
 
+const ensureRuntimeConfigLoaded = async (): Promise<void> => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  if (window.__APP_CONFIG__?.VITE_API_ENDPOINT) {
+    return;
+  }
+
+  if (typeof document === 'undefined') {
+    return;
+  }
+
+  const existingScript = document.querySelector('script[data-amaro-runtime-config="true"]') as HTMLScriptElement | null;
+  if (existingScript && existingScript.dataset.loaded === 'true') {
+    return;
+  }
+
+  const script = existingScript || document.createElement('script');
+  script.src = '/runtime-config.js';
+  script.async = false;
+  script.dataset.amaroRuntimeConfig = 'true';
+
+  if (!existingScript) {
+    document.head.appendChild(script);
+  }
+
+  await new Promise<void>((resolve) => {
+    const onLoad = () => {
+      script.dataset.loaded = 'true';
+      resolve();
+    };
+
+    script.addEventListener('load', onLoad, { once: true });
+    script.addEventListener('error', () => resolve(), { once: true });
+  });
+};
+
 const getJsonBody = async <T>(response: Response, fallbackMessage: string): Promise<T> => {
   const contentType = response.headers.get('content-type') || '';
   if (!contentType.includes('application/json') && !contentType.includes('+json')) {
@@ -79,21 +117,27 @@ const runFetch = async (input: RequestInfo | URL, init: RequestInit, action: str
 };
 
 class AmaroApiClient {
-  private baseUrl: string;
+  private getBaseUrl(): string {
+    return getApiBaseUrl();
+  }
 
-  constructor(baseUrl = getApiBaseUrl()) {
-    this.baseUrl = baseUrl.replace(/\/$/, '');
+  private async getConfiguredBaseUrl(): Promise<string> {
+    await ensureRuntimeConfigLoaded();
+
+    const baseUrl = this.getBaseUrl();
+    if (!baseUrl) {
+      throw new Error('API endpoint is not configured. Set VITE_API_ENDPOINT or deploy the runtime config script with the API URL.');
+    }
+    return baseUrl.replace(/\/$/, '');
   }
 
   /**
    * Fetch all amari bottles from GET /amaros
    */
   async getBottles(): Promise<AmaroBottle[]> {
-    if (!this.baseUrl) {
-      throw new Error('API endpoint is not configured. Set VITE_API_ENDPOINT or deploy the runtime config script with the API URL.');
-    }
+    const baseUrl = await this.getConfiguredBaseUrl();
 
-    const response = await runFetch(`${this.baseUrl}/amaros`, {
+    const response = await runFetch(`${baseUrl}/amaros`, {
       method: 'GET',
       headers: {
         'Accept': 'application/json',
@@ -120,7 +164,9 @@ class AmaroApiClient {
       headers.Authorization = `Bearer ${idToken}`;
     }
 
-    const response = await runFetch(`${this.baseUrl}/amaros`, {
+    const baseUrl = this.getConfiguredBaseUrl();
+
+    const response = await runFetch(`${baseUrl}/amaros`, {
       method: 'POST',
       headers,
       body: JSON.stringify(payload),
@@ -146,7 +192,9 @@ class AmaroApiClient {
       headers.Authorization = `Bearer ${idToken}`;
     }
 
-    const response = await runFetch(`${this.baseUrl}/amaros/${encodeURIComponent(id)}`, {
+    const baseUrl = this.getConfiguredBaseUrl();
+
+    const response = await runFetch(`${baseUrl}/amaros/${encodeURIComponent(id)}`, {
       method: 'PUT',
       headers,
       body: JSON.stringify(payload),
@@ -171,7 +219,9 @@ class AmaroApiClient {
       headers.Authorization = `Bearer ${idToken}`;
     }
 
-    const response = await runFetch(`${this.baseUrl}/amaros/${encodeURIComponent(id)}`, {
+    const baseUrl = this.getConfiguredBaseUrl();
+
+    const response = await runFetch(`${baseUrl}/amaros/${encodeURIComponent(id)}`, {
       method: 'DELETE',
       headers,
     }, 'Failed to delete amaro bottle');
@@ -185,7 +235,9 @@ class AmaroApiClient {
    * Request a presigned URL for uploading a bottle image to S3.
    */
   async requestImageUploadUrl(idToken: string, contentType: string, fileName?: string): Promise<ImageUploadTarget> {
-    const response = await runFetch(`${this.baseUrl}/amaros/image-upload-url`, {
+    const baseUrl = await this.getConfiguredBaseUrl();
+
+    const response = await runFetch(`${baseUrl}/amaros/image-upload-url`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -223,7 +275,9 @@ class AmaroApiClient {
    * Analyze a bottle image and return suggested form field values.
    */
   async analyzeBottleImage(idToken: string, imageUrl: string): Promise<BottleImageAnalysisResult> {
-    const response = await runFetch(`${this.baseUrl}/amaros/analyze-image`, {
+    const baseUrl = await this.getConfiguredBaseUrl();
+
+    const response = await runFetch(`${baseUrl}/amaros/analyze-image`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -241,4 +295,4 @@ class AmaroApiClient {
   }
 }
 
-export const amaroApiClient = new AmaroApiClient(getApiBaseUrl());
+export const amaroApiClient = new AmaroApiClient();
