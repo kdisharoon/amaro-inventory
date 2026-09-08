@@ -11,6 +11,7 @@ dist/
 # Build artifacts and compiled JS
 cdk.out/
 **/*.js
+!public/runtime-config.js
 **/*.js.map
 
 # OS

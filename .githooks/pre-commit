@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
-# Prevent committing any .js or .js.map files into the repo
+# Prevent committing any .js or .js.map files into the repo except the runtime config asset
 STAGED=$(git diff --cached --name-only)
 for FILE in $STAGED; do
   case "$FILE" in
+    public/runtime-config.js)
+      continue
+      ;;
     *.js|*.js.map)
       echo "ERROR: Committing compiled JS files is disallowed: $FILE"
       echo "Unstage the file or add an exception to .gitignore if intentional."
