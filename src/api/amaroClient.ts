@@ -31,8 +31,12 @@ declare global {
   }
 }
 
-const API_BASE_URL =
-  window.__APP_CONFIG__?.VITE_API_ENDPOINT || import.meta.env.VITE_API_ENDPOINT || '';
+const getApiBaseUrl = (): string => {
+  const configuredBaseUrl =
+    window.__APP_CONFIG__?.VITE_API_ENDPOINT || import.meta.env.VITE_API_ENDPOINT || '';
+
+  return configuredBaseUrl.replace(/\/$/, '');
+};
 
 const getJsonBody = async <T>(response: Response, fallbackMessage: string): Promise<T> => {
   const contentType = response.headers.get('content-type') || '';
@@ -77,7 +81,7 @@ const runFetch = async (input: RequestInfo | URL, init: RequestInit, action: str
 class AmaroApiClient {
   private baseUrl: string;
 
-  constructor(baseUrl: string) {
+  constructor(baseUrl = getApiBaseUrl()) {
     this.baseUrl = baseUrl.replace(/\/$/, '');
   }
 
@@ -237,4 +241,4 @@ class AmaroApiClient {
   }
 }
 
-export const amaroApiClient = new AmaroApiClient(API_BASE_URL);
+export const amaroApiClient = new AmaroApiClient(getApiBaseUrl());
