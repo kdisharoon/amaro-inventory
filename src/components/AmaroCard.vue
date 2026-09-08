@@ -69,7 +69,7 @@ const handleDelete = () => emit('delete', props.bottle);
       </span>
 
       <span v-if="bottle.rating" class="rating">
-        <span class="star">?</span> {{ bottle.rating }}/5
+        <span class="star">★</span> {{ bottle.rating }}/5
       </span>
     </div>
 

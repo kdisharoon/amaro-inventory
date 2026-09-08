@@ -115,7 +115,7 @@ export class AmaroStack extends cdk.Stack {
       defaultCorsPreflightOptions: {
         allowOrigins: apigateway.Cors.ALL_ORIGINS,
         allowMethods: apigateway.Cors.ALL_METHODS,
-        allowHeaders: ['Content-Type', 'X-Amz-Date', 'Authorization', 'X-Api-Key', 'X-Amz-Security-Token'],
+        allowHeaders: ['Content-Type', 'X-Amz-Date', 'Authorization', 'X-Api-Key', 'X-Amz-Security-Token', 'X-Amaro-Id-Token'],
       },
     });
 
@@ -132,7 +132,9 @@ export class AmaroStack extends cdk.Stack {
     analyzeImageResource.addMethod('POST', lambdaIntegration); // POST /amaros/analyze-image
 
     const singleAmaroResource = amarosResource.addResource('{id}');
-    singleAmaroResource.addMethod('GET', lambdaIntegration); // GET /amaros/{id}
+    singleAmaroResource.addMethod('GET', lambdaIntegration);    // GET /amaros/{id}
+    singleAmaroResource.addMethod('PUT', lambdaIntegration);    // PUT /amaros/{id}
+    singleAmaroResource.addMethod('DELETE', lambdaIntegration); // DELETE /amaros/{id}
 
     this.apiUrl = api.url;
 

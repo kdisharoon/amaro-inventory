@@ -288,6 +288,8 @@ const submit = async () => {
       if (updated) {
         resetForm();
         emit('saved');
+      } else {
+        error.value = amaroStore.error || 'Failed to update bottle.';
       }
       return;
     }
@@ -296,6 +298,8 @@ const submit = async () => {
     if (created) {
       resetForm();
       emit('saved');
+    } else {
+      error.value = amaroStore.error || 'Failed to add bottle.';
     }
   } catch (e: any) {
     error.value = e?.message || 'Failed to add bottle.';

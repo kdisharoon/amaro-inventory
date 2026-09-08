@@ -170,7 +170,7 @@ const handleDeleteBottle = async (bottle: AmaroBottle) => {
 
   const deleted = await amaroStore.deleteBottle(bottle.id, idToken.value || undefined);
   if (!deleted) {
-    authMessage.value = 'Could not delete this bottle. Please try again.';
+    authMessage.value = amaroStore.error || 'Could not delete this bottle. Please try again.';
   }
 };
 
