@@ -14,10 +14,11 @@ const signedInEmail = ref<string | null>(localStorage.getItem('amaro_google_emai
 const showGoogleFallbackButton = ref(false);
 const authMessage = ref('');
 
-const googleClientId =
+const getGoogleClientId = (): string =>
   window.__APP_CONFIG__?.GOOGLE_CLIENT_ID ||
   import.meta.env.VITE_GOOGLE_CLIENT_ID ||
   '';
+
 let googleInitialized = false;
 
 const decodeJwtPayload = (token: string): Record<string, any> | null => {
@@ -62,6 +63,7 @@ const handleGoogleCredential = (response: { credential?: string }) => {
 };
 
 const initializeGoogleIdentity = () => {
+  const googleClientId = getGoogleClientId();
   if (googleInitialized || !window.google || !googleClientId) return;
 
   window.google.accounts.id.initialize({
@@ -73,6 +75,7 @@ const initializeGoogleIdentity = () => {
 };
 
 const renderGoogleButton = () => {
+  const googleClientId = getGoogleClientId();
   if (!window.google || !googleClientId) return;
   initializeGoogleIdentity();
 
@@ -90,6 +93,7 @@ const renderGoogleButton = () => {
 const waitForGoogleAndRender = () => {
   let attempts = 0;
   const timer = window.setInterval(() => {
+    const googleClientId = getGoogleClientId();
     attempts += 1;
     if (window.google && googleClientId) {
       window.clearInterval(timer);
@@ -121,6 +125,7 @@ const handleAddBottleClick = () => {
     authMessage.value = 'Session expired. Please sign in again to add and analyze bottles.';
   }
 
+  const googleClientId = getGoogleClientId();
   if (!googleClientId) {
     authMessage.value = 'Google sign-in is not configured. Set GOOGLE_CLIENT_ID in deployment configuration.';
     return;
