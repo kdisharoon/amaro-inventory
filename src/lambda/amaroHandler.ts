@@ -38,8 +38,8 @@ export interface AmaroItem {
 interface GoogleTokenInfo {
   aud: string;
   email: string;
-  email_verified: string;
-  exp: string;
+  email_verified: string | boolean;
+  exp: string | number;
 }
 
 interface BottleAnalysisResult {
