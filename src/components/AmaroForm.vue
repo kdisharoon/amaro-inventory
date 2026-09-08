@@ -1,18 +1,22 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { useAmaroStore } from '../stores/amaroStore';
 import { amaroApiClient, type BottleImageAnalysisResult } from '../api/amaroClient';
-import type { CreateAmaroBottlePayload } from '../types/amaro';
+import type { AmaroBottle, CreateAmaroBottlePayload, UpdateAmaroBottlePayload } from '../types/amaro';
 
 const props = defineProps<{
   idToken?: string | null;
+  bottle?: AmaroBottle | null;
+  mode?: 'create' | 'edit';
 }>();
 
 const emit = defineEmits<{
   (e: 'cancel'): void;
+  (e: 'saved'): void;
 }>();
 
 const amaroStore = useAmaroStore();
+const isEditMode = computed(() => props.mode === 'edit' || Boolean(props.bottle));
 
 const name = ref('');
 const producer = ref('');
@@ -196,6 +200,27 @@ const clearImage = () => {
   resetAnalysisSignals();
 };
 
+const hydrateFormFromBottle = (bottle: AmaroBottle | null | undefined) => {
+  if (!bottle) {
+    resetForm();
+    return;
+  }
+
+  name.value = bottle.name || '';
+  producer.value = bottle.producer || '';
+  region.value = bottle.region || '';
+  abv.value = bottle.abv ?? null;
+  description.value = bottle.description || '';
+  flavorNotes.value = bottle.flavorNotes?.join(', ') || '';
+  sweetnessLevel.value = bottle.sweetnessLevel || 'not-specified';
+  status.value = bottle.status || 'unopened';
+  uploadedImageUrl.value = bottle.imageUrl || '';
+  selectedImagePreviewUrl.value = bottle.imageUrl || '';
+  selectedImageFile.value = null;
+  analysisMessage.value = '';
+  resetAnalysisSignals();
+};
+
 const resetForm = () => {
   name.value = '';
   producer.value = '';
@@ -211,6 +236,20 @@ const resetForm = () => {
   analysisMessage.value = '';
   resetAnalysisSignals();
 };
+
+watch(
+  () => props.bottle,
+  (bottle) => {
+    if (isEditMode.value && bottle) {
+      hydrateFormFromBottle(bottle);
+      return;
+    }
+    if (!isEditMode.value) {
+      resetForm();
+    }
+  },
+  { immediate: true }
+);
 
 const submit = async () => {
   error.value = null;
@@ -237,11 +276,27 @@ const submit = async () => {
         .filter(Boolean),
       sweetnessLevel: sweetnessLevel.value,
       status: status.value,
-      imageUrl: uploadedImageUrl.value || undefined,
+      imageUrl: uploadedImageUrl.value || props.bottle?.imageUrl || undefined,
     };
 
+    if (isEditMode.value && props.bottle) {
+      const updatePayload: UpdateAmaroBottlePayload = {
+        ...payload,
+        id: props.bottle.id,
+      };
+      const updated = await amaroStore.updateBottle(props.bottle.id, updatePayload, props.idToken || undefined);
+      if (updated) {
+        resetForm();
+        emit('saved');
+      }
+      return;
+    }
+
     const created = await amaroStore.addBottle(payload, props.idToken || undefined);
-    if (created) resetForm();
+    if (created) {
+      resetForm();
+      emit('saved');
+    }
   } catch (e: any) {
     error.value = e?.message || 'Failed to add bottle.';
   } finally {
@@ -326,6 +381,7 @@ const clearFlavorNotes = () => {
     </div>
 
     <div class="row action-row">
+      <label>{{ isEditMode ? 'Edit bottle' : 'Add bottle' }}</label>
       <label>Sweetness</label>
       <select v-model="sweetnessLevel">
         <option value="not-specified">Not specified</option>
@@ -341,7 +397,7 @@ const clearFlavorNotes = () => {
       </select>
       <div class="action-buttons">
         <button type="button" class="secondary-btn" @click="cancel" :disabled="isSubmitting">Cancel</button>
-        <button type="submit" :disabled="isSubmitting">{{ isSubmitting ? 'Saving...' : 'Add Bottle' }}</button>
+        <button type="submit" :disabled="isSubmitting">{{ isSubmitting ? 'Saving...' : (isEditMode ? 'Save Changes' : 'Add Bottle') }}</button>
       </div>
     </div>
 

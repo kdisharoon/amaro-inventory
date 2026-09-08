@@ -4,9 +4,11 @@ import { useAmaroStore } from './stores/amaroStore';
 import AmaroFilterBar from './components/AmaroFilterBar.vue';
 import AmaroCard from './components/AmaroCard.vue';
 import AmaroForm from './components/AmaroForm.vue';
+import type { AmaroBottle } from './types/amaro';
 
 const amaroStore = useAmaroStore();
 const showAddForm = ref(false);
+const editingBottle = ref<AmaroBottle | null>(null);
 const idToken = ref<string | null>(localStorage.getItem('amaro_google_id_token'));
 const signedInEmail = ref<string | null>(localStorage.getItem('amaro_google_email'));
 const showGoogleFallbackButton = ref(false);
@@ -102,10 +104,12 @@ const waitForGoogleAndRender = () => {
 const handleAddBottleClick = () => {
   authMessage.value = '';
 
-  if (showAddForm.value) {
+  if (showAddForm.value && !editingBottle.value) {
     showAddForm.value = false;
     return;
   }
+
+  editingBottle.value = null;
 
   if (idToken.value && isTokenFresh(idToken.value)) {
     showAddForm.value = true;
@@ -139,7 +143,20 @@ const handleAddBottleClick = () => {
 
 const handleFormCancel = () => {
   showAddForm.value = false;
+  editingBottle.value = null;
 };
+
+const handleFormSaved = () => {
+  showAddForm.value = false;
+  editingBottle.value = null;
+};
+
+const handleEditBottle = (bottle: AmaroBottle) => {
+  editingBottle.value = bottle;
+  showAddForm.value = true;
+  authMessage.value = '';
+};
+
 
 const signOut = () => {
   idToken.value = null;
@@ -189,7 +206,14 @@ onMounted(() => {
         <p v-if="authMessage" class="auth-message">{{ authMessage }}</p>
       </section>
 
-      <AmaroForm v-if="showAddForm" :id-token="idToken" @cancel="handleFormCancel" />
+      <AmaroForm
+        v-if="showAddForm"
+        :id-token="idToken"
+        :bottle="editingBottle"
+        :mode="editingBottle ? 'edit' : 'create'"
+        @cancel="handleFormCancel"
+        @saved="handleFormSaved"
+      />
 
       <AmaroFilterBar />
 
@@ -213,6 +237,7 @@ onMounted(() => {
           v-for="bottle in amaroStore.filteredBottles"
           :key="bottle.id"
           :bottle="bottle"
+          @edit="handleEditBottle"
         />
       </div>
     </main>

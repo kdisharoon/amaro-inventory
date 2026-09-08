@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia';
-import { AmaroBottle, CreateAmaroBottlePayload } from '../types/amaro';
+import { AmaroBottle, CreateAmaroBottlePayload, UpdateAmaroBottlePayload } from '../types/amaro';
 import { amaroApiClient } from '../api/amaroClient';
 
 export interface AmaroFilterState {
@@ -79,6 +79,22 @@ export const useAmaroStore = defineStore('amaro', {
       } catch (err: any) {
         this.error = err?.message || 'Failed to add amaro bottle.';
         console.error('Error in amaroStore.addBottle:', err);
+        return null;
+      } finally {
+        this.isLoading = false;
+      }
+    },
+
+    async updateBottle(id: string, payload: UpdateAmaroBottlePayload, idToken?: string): Promise<AmaroBottle | null> {
+      this.isLoading = true;
+      this.error = null;
+      try {
+        const updatedBottle = await amaroApiClient.updateBottle(id, payload, idToken);
+        this.bottles = this.bottles.map((bottle) => bottle.id === id ? updatedBottle : bottle);
+        return updatedBottle;
+      } catch (err: any) {
+        this.error = err?.message || 'Failed to update amaro bottle.';
+        console.error('Error in amaroStore.updateBottle:', err);
         return null;
       } finally {
         this.isLoading = false;

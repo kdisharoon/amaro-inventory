@@ -1,4 +1,4 @@
-import { AmaroBottle, CreateAmaroBottlePayload } from '../types/amaro';
+import { AmaroBottle, CreateAmaroBottlePayload, UpdateAmaroBottlePayload } from '../types/amaro';
 
 export interface ImageUploadTarget {
   uploadUrl: string;
@@ -103,6 +103,32 @@ class AmaroApiClient {
 
     if (!response.ok) {
       throw await buildApiError(response, 'Failed to add amaro bottle');
+    }
+
+    return response.json();
+  }
+
+  /**
+   * Update an amaro bottle via PUT /amaros/{id}
+   */
+  async updateBottle(id: string, payload: UpdateAmaroBottlePayload, idToken?: string): Promise<AmaroBottle> {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+    };
+
+    if (idToken) {
+      headers.Authorization = `Bearer ${idToken}`;
+    }
+
+    const response = await runFetch(`${this.baseUrl}/amaros/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify(payload),
+    }, 'Failed to update amaro bottle');
+
+    if (!response.ok) {
+      throw await buildApiError(response, 'Failed to update amaro bottle');
     }
 
     return response.json();

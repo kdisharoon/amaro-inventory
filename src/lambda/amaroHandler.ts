@@ -1,6 +1,6 @@
 import { APIGatewayProxyEvent, APIGatewayProxyResult } from 'aws-lambda';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient, ScanCommand, GetCommand, PutCommand } from '@aws-sdk/lib-dynamodb';
+import { DynamoDBDocumentClient, ScanCommand, GetCommand, PutCommand, DeleteCommand } from '@aws-sdk/lib-dynamodb';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { DetectTextCommand, RekognitionClient } from '@aws-sdk/client-rekognition';
 import { TranslateClient, TranslateTextCommand } from '@aws-sdk/client-translate';
@@ -1073,7 +1073,7 @@ const corsHeaders = {
   'Content-Type': 'application/json',
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token',
-  'Access-Control-Allow-Methods': 'OPTIONS,GET,POST',
+  'Access-Control-Allow-Methods': 'OPTIONS,GET,POST,PUT,DELETE',
 };
 
 export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> => {
@@ -1208,6 +1208,86 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
         statusCode: 200,
         headers: corsHeaders,
         body: JSON.stringify(response.Item as AmaroItem),
+      };
+    }
+
+    // PUT /amaros/{id} - Update an amaro bottle
+    if (httpMethod === 'PUT' && pathParameters?.id) {
+      const idToken = extractBearerToken(event.headers);
+      if (!idToken) {
+        return {
+          statusCode: 401,
+          headers: corsHeaders,
+          body: JSON.stringify({ message: 'Missing bearer token.' }),
+        };
+      }
+
+      const authorized = await isAuthorizedAdmin(idToken);
+      if (!authorized) {
+        return {
+          statusCode: 403,
+          headers: corsHeaders,
+          body: JSON.stringify({ message: 'Forbidden. This account is not authorized to update bottles.' }),
+        };
+      }
+
+      if (!event.body) {
+        return {
+          statusCode: 400,
+          headers: corsHeaders,
+          body: JSON.stringify({ message: 'Request body is required.' }),
+        };
+      }
+
+      const body = JSON.parse(event.body);
+      if (!body.name || !body.region || typeof body.abv !== 'number') {
+        return {
+          statusCode: 400,
+          headers: corsHeaders,
+          body: JSON.stringify({ message: 'Missing required fields: name, region, and numerical abv are required.' }),
+        };
+      }
+
+      const existingBottle = await docClient.send(new GetCommand({
+        TableName: TABLE_NAME,
+        Key: { id: pathParameters.id },
+      }));
+
+      if (!existingBottle.Item) {
+        return {
+          statusCode: 404,
+          headers: corsHeaders,
+          body: JSON.stringify({ message: `Amaro with ID '${pathParameters.id}' not found.` }),
+        };
+      }
+
+      const updatedItem: AmaroItem = {
+        ...existingBottle.Item,
+        id: pathParameters.id,
+        name: body.name,
+        producer: body.producer || existingBottle.Item.producer || 'Unknown',
+        region: body.region,
+        abv: body.abv,
+        description: typeof body.description === 'string' ? body.description : existingBottle.Item.description || '',
+        flavorNotes: Array.isArray(body.flavorNotes) ? body.flavorNotes : existingBottle.Item.flavorNotes || [],
+        sweetnessLevel: body.sweetnessLevel || existingBottle.Item.sweetnessLevel || 'not-specified',
+        status: body.status || existingBottle.Item.status || 'unopened',
+        imageUrl: typeof body.imageUrl === 'string' && body.imageUrl.trim() !== ''
+          ? body.imageUrl.trim()
+          : existingBottle.Item.imageUrl,
+        rating: body.rating ?? existingBottle.Item.rating ?? 0,
+        dateAdded: body.dateAdded || existingBottle.Item.dateAdded || new Date().toISOString(),
+      };
+
+      await docClient.send(new PutCommand({
+        TableName: TABLE_NAME,
+        Item: updatedItem,
+      }));
+
+      return {
+        statusCode: 200,
+        headers: corsHeaders,
+        body: JSON.stringify(updatedItem),
       };
     }
 

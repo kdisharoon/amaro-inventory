@@ -1,8 +1,12 @@
 <script setup lang="ts">
 import { AmaroBottle } from '../types/amaro';
 
-defineProps<{
+const props = defineProps<{
   bottle: AmaroBottle;
+}>();
+
+const emit = defineEmits<{
+  (e: 'edit', bottle: AmaroBottle): void;
 }>();
 
 const formatSweetness = (level?: string): string => {
@@ -26,6 +30,8 @@ const formatStatus = (status?: string): string => {
     default: return status;
   }
 };
+
+const handleEdit = () => emit('edit', props.bottle);
 </script>
 
 <template>
@@ -69,6 +75,10 @@ const formatStatus = (status?: string): string => {
       <span v-for="note in bottle.flavorNotes" :key="note" class="note-tag">
         {{ note }}
       </span>
+    </div>
+
+    <div class="card-actions">
+      <button type="button" class="edit-btn" @click="handleEdit">Edit</button>
     </div>
   </div>
 </template>
@@ -214,6 +224,26 @@ const formatStatus = (status?: string): string => {
   display: flex;
   flex-wrap: wrap;
   gap: 0.35rem;
+}
+
+.card-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.9rem;
+}
+
+.card-actions button {
+  border: none;
+  border-radius: 6px;
+  padding: 0.45rem 0.7rem;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.edit-btn {
+  background: #e2e8f0;
+  color: #1f2937;
 }
 
 .note-tag {
