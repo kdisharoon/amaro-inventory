@@ -1038,10 +1038,11 @@ const analyzeBottleImage = async (imageUrl: string): Promise<BottleAnalysisResul
 };
 
 const extractBearerToken = (headers: APIGatewayProxyEvent['headers']): string | null => {
-  const authHeader = headers.Authorization || headers.authorization;
+  const customTokenHeader = headers['X-Amaro-Id-Token'] || headers['x-amaro-id-token'];
+  const authHeader = customTokenHeader || headers.Authorization || headers.authorization;
   if (!authHeader) return null;
   const match = authHeader.match(/^Bearer\s+(.+)$/i);
-  return match?.[1] || null;
+  return match?.[1] || authHeader;
 };
 
 const isAuthorizedAdmin = async (idToken: string): Promise<boolean> => {
@@ -1063,7 +1064,7 @@ const isAuthorizedAdmin = async (idToken: string): Promise<boolean> => {
 
   return (
     tokenInfo.aud === GOOGLE_CLIENT_ID &&
-    tokenInfo.email_verified === 'true' &&
+    (tokenInfo.email_verified === true || tokenInfo.email_verified === 'true') &&
     tokenExp > nowEpochSeconds &&
     tokenInfo.email?.toLowerCase() === ADMIN_GOOGLE_EMAIL
   );
@@ -1072,7 +1073,7 @@ const isAuthorizedAdmin = async (idToken: string): Promise<boolean> => {
 const corsHeaders = {
   'Content-Type': 'application/json',
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token',
+  'Access-Control-Allow-Headers': 'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amaro-Id-Token',
   'Access-Control-Allow-Methods': 'OPTIONS,GET,POST,PUT,DELETE',
 };
 

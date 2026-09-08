@@ -161,7 +161,7 @@ class AmaroApiClient {
     };
 
     if (idToken) {
-      headers.Authorization = `Bearer ${idToken}`;
+      headers['X-Amaro-Id-Token'] = `Bearer ${idToken}`;
     }
 
     const baseUrl = await this.getConfiguredBaseUrl();
@@ -189,7 +189,7 @@ class AmaroApiClient {
     };
 
     if (idToken) {
-      headers.Authorization = `Bearer ${idToken}`;
+      headers['X-Amaro-Id-Token'] = `Bearer ${idToken}`;
     }
 
     const baseUrl = await this.getConfiguredBaseUrl();
@@ -216,7 +216,7 @@ class AmaroApiClient {
     };
 
     if (idToken) {
-      headers.Authorization = `Bearer ${idToken}`;
+      headers['X-Amaro-Id-Token'] = `Bearer ${idToken}`;
     }
 
     const baseUrl = await this.getConfiguredBaseUrl();
@@ -242,7 +242,7 @@ class AmaroApiClient {
       headers: {
         'Content-Type': 'application/json',
         'Accept': 'application/json',
-        Authorization: `Bearer ${idToken}`,
+        'X-Amaro-Id-Token': `Bearer ${idToken}`,
       },
       body: JSON.stringify({ contentType, fileName }),
     }, 'Failed to request image upload URL');
@@ -282,7 +282,7 @@ class AmaroApiClient {
       headers: {
         'Content-Type': 'application/json',
         'Accept': 'application/json',
-        Authorization: `Bearer ${idToken}`,
+        'X-Amaro-Id-Token': `Bearer ${idToken}`,
       },
       body: JSON.stringify({ imageUrl }),
     }, 'Failed to analyze bottle image');
