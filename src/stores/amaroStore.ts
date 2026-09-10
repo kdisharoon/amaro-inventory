@@ -4,7 +4,6 @@ import { amaroApiClient } from '../api/amaroClient';
 
 export interface AmaroFilterState {
   searchQuery: string;
-  maxAbv: number | null;
 }
 
 export const useAmaroStore = defineStore('amaro', {
@@ -14,7 +13,6 @@ export const useAmaroStore = defineStore('amaro', {
     error: null as string | null,
     filters: {
       searchQuery: '',
-      maxAbv: null,
     } as AmaroFilterState,
   }),
 
@@ -26,7 +24,7 @@ export const useAmaroStore = defineStore('amaro', {
           const query = state.filters.searchQuery.toLowerCase();
           const matchesName = bottle.name.toLowerCase().includes(query);
           const matchesProducer = bottle.producer.toLowerCase().includes(query);
-          const matchesRegion = bottle.region.toLowerCase().includes(query);
+          const matchesRegion = (bottle.region || '').toLowerCase().includes(query);
           const matchesNotes = bottle.flavorNotes.some((note) =>
             note.toLowerCase().includes(query)
           );
@@ -34,11 +32,6 @@ export const useAmaroStore = defineStore('amaro', {
           if (!matchesName && !matchesProducer && !matchesRegion && !matchesNotes) {
             return false;
           }
-        }
-
-        // ABV Filter
-        if (state.filters.maxAbv !== null && bottle.abv > state.filters.maxAbv) {
-          return false;
         }
 
         return true;
@@ -50,7 +43,7 @@ export const useAmaroStore = defineStore('amaro', {
     },
 
     availableRegions(state): string[] {
-      const regions = state.bottles.map((b) => b.region);
+      const regions = state.bottles.map((b) => b.region).filter((r): r is string => Boolean(r));
       return Array.from(new Set(regions)).sort();
     },
   },
@@ -124,7 +117,6 @@ export const useAmaroStore = defineStore('amaro', {
     resetFilters(): void {
       this.filters = {
         searchQuery: '',
-        maxAbv: null,
       };
     },
   },

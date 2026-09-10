@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue';
 import { useAmaroStore } from '../stores/amaroStore';
 import { amaroApiClient, type BottleImageAnalysisResult } from '../api/amaroClient';
-import type { AmaroBottle, CreateAmaroBottlePayload, UpdateAmaroBottlePayload } from '../types/amaro';
+import { type AmaroBottle, type CreateAmaroBottlePayload, type UpdateAmaroBottlePayload, ITALIAN_REGIONS } from '../types/amaro';
 
 const props = defineProps<{
   idToken?: string | null;
@@ -253,8 +253,8 @@ watch(
 
 const submit = async () => {
   error.value = null;
-  if (!name.value || !producer.value || abv.value === null) {
-    error.value = 'Please provide at least name, producer and ABV.';
+  if (!name.value || !producer.value) {
+    error.value = 'Please provide at least name and producer.';
     return;
   }
 
@@ -267,8 +267,8 @@ const submit = async () => {
     const payload: CreateAmaroBottlePayload = {
       name: name.value,
       producer: producer.value,
-      region: region.value,
-      abv: abv.value,
+      region: region.value || undefined,
+      abv: typeof abv.value === 'number' && !isNaN(abv.value) ? abv.value : undefined,
       description: description.value,
       flavorNotes: flavorNotes.value
         .split(',')
@@ -355,13 +355,16 @@ const clearFlavorNotes = () => {
     </section>
 
     <div class="row">
-      <input v-model="name" placeholder="Name" />
-      <input v-model="producer" placeholder="Producer" />
+      <input v-model="name" placeholder="Name *" required />
+      <input v-model="producer" placeholder="Producer *" required />
     </div>
 
     <div class="row">
-      <input v-model="region" placeholder="Region" />
-      <input v-model.number="abv" type="number" min="0" max="100" placeholder="ABV %" />
+      <select v-model="region" class="region-select">
+        <option value="">Region (optional)</option>
+        <option v-for="r in ITALIAN_REGIONS" :key="r" :value="r">{{ r }}</option>
+      </select>
+      <input v-model.number="abv" type="number" min="0" max="100" step="0.1" placeholder="ABV % (optional)" />
     </div>
 
     <div class="field-group">

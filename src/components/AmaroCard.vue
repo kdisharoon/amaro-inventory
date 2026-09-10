@@ -38,20 +38,28 @@ const handleDelete = () => emit('delete', props.bottle);
 
 <template>
   <div class="amaro-card">
-    <img
-      v-if="bottle.imageUrl"
-      class="bottle-image"
-      :src="bottle.imageUrl"
-      :alt="`${bottle.name} bottle image`"
-      loading="lazy"
-    />
+    <div class="image-container">
+      <img
+        v-if="bottle.imageUrl"
+        class="bottle-image"
+        :src="bottle.imageUrl"
+        :alt="`${bottle.name} bottle image`"
+        loading="lazy"
+      />
+      <div v-else class="bottle-image-placeholder">
+        <span class="placeholder-icon">🍾</span>
+      </div>
+    </div>
 
     <div class="card-header">
       <div>
         <h3 class="bottle-name">{{ bottle.name }}</h3>
-        <p class="producer">{{ bottle.producer }} &bull; <span class="region">{{ bottle.region }}</span></p>
+        <p class="producer">
+          {{ bottle.producer }}
+          <template v-if="bottle.region"> &bull; <span class="region">{{ bottle.region }}</span></template>
+        </p>
       </div>
-      <div class="abv-badge">{{ bottle.abv }}% ABV</div>
+      <div v-if="typeof bottle.abv === 'number'" class="abv-badge">{{ bottle.abv }}% ABV</div>
     </div>
 
     <p v-if="bottle.description" class="description">{{ bottle.description }}</p>
@@ -104,13 +112,35 @@ const handleDelete = () => emit('delete', props.bottle);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
 }
 
-.bottle-image {
+.image-container {
   width: 100%;
   height: 220px;
+  margin-bottom: 0.9rem;
+}
+
+.bottle-image {
+  width: 100%;
+  height: 100%;
   object-fit: cover;
   border-radius: 8px;
-  margin-bottom: 0.9rem;
   border: 1px solid #e2e8f0;
+}
+
+.bottle-image-placeholder {
+  width: 100%;
+  height: 100%;
+  background: #f8fafc;
+  border: 1px dashed #cbd5e1;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.placeholder-icon {
+  font-size: 2.75rem;
+  opacity: 0.35;
+  user-select: none;
 }
 
 .card-header {

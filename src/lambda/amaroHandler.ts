@@ -24,8 +24,8 @@ export interface AmaroItem {
   id: string;
   name: string;
   producer: string;
-  region: string;
-  abv: number;
+  region?: string;
+  abv?: number;
   description: string;
   flavorNotes: string[];
   sweetnessLevel: 'not-specified' | 'dry' | 'semi-sweet' | 'sweet';
@@ -101,7 +101,7 @@ const ADMIN_GOOGLE_EMAIL = (process.env.ADMIN_GOOGLE_EMAIL || 'kdisharoon@gmail.
 
 const REGION_HINTS = [
   'Sicilia', 'Piemonte', 'Lombardia', 'Veneto', 'Toscana', 'Campania', 'Calabria', 'Sardegna',
-  'Trentino', 'Emilia-Romagna', 'Puglia', 'Basilicata', 'Liguria', 'Lazio', 'Umbria', 'Abruzzo',
+  'Trentino-Alto Adige', 'Trentino', 'Alto Adige', 'Emilia-Romagna', 'Puglia', 'Basilicata', 'Liguria', 'Lazio', 'Umbria', 'Abruzzo',
   'Marche', 'Friuli-Venezia Giulia', 'Molise', 'Valle d\'Aosta'
 ];
 
@@ -214,6 +214,9 @@ const detectSweetness = (text: string): 'not-specified' | 'dry' | 'semi-sweet' |
 const extractRegion = (text: string): string | undefined => {
   const normalized = text.toLowerCase();
   const match = REGION_HINTS.find((region) => normalized.includes(region.toLowerCase()));
+  if (match === 'Trentino' || match === 'Alto Adige') {
+    return 'Trentino-Alto Adige';
+  }
   return match;
 };
 
@@ -1241,11 +1244,11 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
       }
 
       const body = JSON.parse(event.body);
-      if (!body.name || !body.region || typeof body.abv !== 'number') {
+      if (!body.name) {
         return {
           statusCode: 400,
           headers: corsHeaders,
-          body: JSON.stringify({ message: 'Missing required fields: name, region, and numerical abv are required.' }),
+          body: JSON.stringify({ message: 'Missing required field: name is required.' }),
         };
       }
 
@@ -1267,15 +1270,15 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
         id: pathParameters.id,
         name: body.name,
         producer: body.producer || existingBottle.Item.producer || 'Unknown',
-        region: body.region,
-        abv: body.abv,
+        region: typeof body.region === 'string' ? body.region : (existingBottle.Item.region || ''),
+        abv: typeof body.abv === 'number' && !isNaN(body.abv) ? body.abv : (body.abv === null ? undefined : existingBottle.Item.abv),
         description: typeof body.description === 'string' ? body.description : existingBottle.Item.description || '',
         flavorNotes: Array.isArray(body.flavorNotes) ? body.flavorNotes : existingBottle.Item.flavorNotes || [],
         sweetnessLevel: body.sweetnessLevel || existingBottle.Item.sweetnessLevel || 'not-specified',
         status: body.status || existingBottle.Item.status || 'unopened',
         imageUrl: typeof body.imageUrl === 'string' && body.imageUrl.trim() !== ''
           ? body.imageUrl.trim()
-          : existingBottle.Item.imageUrl,
+          : (body.imageUrl === '' ? undefined : existingBottle.Item.imageUrl),
         rating: body.rating ?? existingBottle.Item.rating ?? 0,
         dateAdded: body.dateAdded || existingBottle.Item.dateAdded || new Date().toISOString(),
       };
@@ -1367,11 +1370,11 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
 
       const body = JSON.parse(event.body);
 
-      if (!body.name || !body.region || typeof body.abv !== 'number') {
+      if (!body.name) {
         return {
           statusCode: 400,
           headers: corsHeaders,
-          body: JSON.stringify({ message: 'Missing required fields: name, region, and numerical abv are required.' }),
+          body: JSON.stringify({ message: 'Missing required field: name is required.' }),
         };
       }
 
@@ -1381,8 +1384,8 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
         id,
         name: body.name,
         producer: body.producer || 'Unknown',
-        region: body.region,
-        abv: body.abv,
+        region: typeof body.region === 'string' ? body.region : '',
+        abv: typeof body.abv === 'number' && !isNaN(body.abv) ? body.abv : undefined,
         description: body.description || '',
         flavorNotes: Array.isArray(body.flavorNotes) ? body.flavorNotes : [],
         sweetnessLevel: body.sweetnessLevel || 'not-specified',
