@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { useAmaroStore } from './stores/amaroStore';
 import AmaroFilterBar from './components/AmaroFilterBar.vue';
 import AmaroCard from './components/AmaroCard.vue';
@@ -47,6 +47,8 @@ const isTokenFresh = (token?: string | null): boolean => {
   return exp > now + 30;
 };
 
+const isLoggedIn = computed(() => Boolean(idToken.value && isTokenFresh(idToken.value)));
+
 const handleGoogleCredential = (response: { credential?: string }) => {
   if (!response?.credential) return;
   const payload = decodeJwtPayload(response.credential);
@@ -57,7 +59,6 @@ const handleGoogleCredential = (response: { credential?: string }) => {
   signedInEmail.value = email;
   showGoogleFallbackButton.value = false;
   authMessage.value = '';
-  showAddForm.value = true;
   localStorage.setItem('amaro_google_id_token', response.credential);
   localStorage.setItem('amaro_google_email', email);
 };
@@ -105,25 +106,8 @@ const waitForGoogleAndRender = () => {
   }, 200);
 };
 
-const handleAddBottleClick = () => {
+const handleLoginClick = () => {
   authMessage.value = '';
-
-  if (showAddForm.value && !editingBottle.value) {
-    showAddForm.value = false;
-    return;
-  }
-
-  editingBottle.value = null;
-
-  if (idToken.value && isTokenFresh(idToken.value)) {
-    showAddForm.value = true;
-    return;
-  }
-
-  if (idToken.value && !isTokenFresh(idToken.value)) {
-    signOut();
-    authMessage.value = 'Session expired. Please sign in again to add and analyze bottles.';
-  }
 
   const googleClientId = getGoogleClientId();
   if (!googleClientId) {
@@ -140,10 +124,27 @@ const handleAddBottleClick = () => {
   window.google.accounts.id.prompt((notification: any) => {
     if (notification?.isNotDisplayed?.() || notification?.isSkippedMoment?.()) {
       showGoogleFallbackButton.value = true;
-      authMessage.value = 'Continue with Google to add a bottle.';
+      authMessage.value = 'Continue with Google to sign in.';
       renderGoogleButton();
     }
   });
+};
+
+const handleAddBottleClick = () => {
+  authMessage.value = '';
+
+  if (!isLoggedIn.value) {
+    handleLoginClick();
+    return;
+  }
+
+  if (showAddForm.value && !editingBottle.value) {
+    showAddForm.value = false;
+    return;
+  }
+
+  editingBottle.value = null;
+  showAddForm.value = true;
 };
 
 const handleFormCancel = () => {
@@ -173,7 +174,6 @@ const handleDeleteBottle = async (bottle: AmaroBottle) => {
     authMessage.value = amaroStore.error || 'Could not delete this bottle. Please try again.';
   }
 };
-
 
 const signOut = () => {
   idToken.value = null;
@@ -212,11 +212,16 @@ onMounted(() => {
     <main class="app-main">
       <section class="auth-panel">
         <div class="auth-actions">
-          <button class="toggle-add-btn" @click="handleAddBottleClick">
-            {{ showAddForm ? 'Hide Add Form' : 'Add Bottle' }}
-          </button>
-          <p v-if="idToken && signedInEmail" class="signed-in-as">Signed in as <strong>{{ signedInEmail }}</strong></p>
-          <button v-if="idToken" class="signout-btn" @click="signOut">Sign out</button>
+          <template v-if="isLoggedIn">
+            <button class="toggle-add-btn" @click="handleAddBottleClick">
+              {{ showAddForm && !editingBottle ? 'Hide Add Form' : 'Add Bottle' }}
+            </button>
+            <button class="signout-btn" @click="signOut">Log Out</button>
+            <p v-if="signedInEmail" class="signed-in-as">Signed in as <strong>{{ signedInEmail }}</strong></p>
+          </template>
+          <template v-else>
+            <button class="login-btn" @click="handleLoginClick">Log In</button>
+          </template>
         </div>
 
         <div v-if="showGoogleFallbackButton" id="google-signin-button"></div>
@@ -224,7 +229,7 @@ onMounted(() => {
       </section>
 
       <AmaroForm
-        v-if="showAddForm"
+        v-if="showAddForm && isLoggedIn"
         :id-token="idToken"
         :bottle="editingBottle"
         :mode="editingBottle ? 'edit' : 'create'"
@@ -254,6 +259,7 @@ onMounted(() => {
           v-for="bottle in amaroStore.filteredBottles"
           :key="bottle.id"
           :bottle="bottle"
+          :can-edit="isLoggedIn"
           @edit="handleEditBottle"
           @delete="handleDeleteBottle"
         />
@@ -278,6 +284,7 @@ onMounted(() => {
   border-bottom: 2px solid #e2e8f0;
   padding-bottom: 1.5rem;
   margin-bottom: 2rem;
+  gap: 1rem;
 }
 
 .app-header h1 {
@@ -293,12 +300,20 @@ onMounted(() => {
   font-size: 1rem;
 }
 
+.header-stats {
+  flex-shrink: 0;
+}
+
 .stat-badge {
   background-color: #edf2f7;
   color: #4a5568;
-  padding: 0.5rem 1rem;
+  padding: 0.45rem 0.9rem;
   border-radius: 9999px;
   font-size: 0.875rem;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
 }
 
 .app-main {
@@ -323,14 +338,15 @@ onMounted(() => {
   align-items: center;
   gap: 0.75rem;
   flex-wrap: wrap;
-  justify-content: flex-end;
 }
 
 .signed-in-as {
   margin: 0;
   font-size: 0.9rem;
+  color: #4b5563;
 }
 
+.login-btn,
 .toggle-add-btn,
 .signout-btn {
   border: none;
@@ -338,6 +354,16 @@ onMounted(() => {
   padding: 0.5rem 0.9rem;
   font-weight: 600;
   cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.login-btn {
+  background: #2563eb;
+  color: #fff;
+}
+
+.login-btn:hover {
+  background: #1d4ed8;
 }
 
 .toggle-add-btn {
@@ -345,9 +371,17 @@ onMounted(() => {
   color: #fff;
 }
 
+.toggle-add-btn:hover {
+  background: #1d4ed8;
+}
+
 .signout-btn {
   background: #e2e8f0;
   color: #1f2937;
+}
+
+.signout-btn:hover {
+  background: #cbd5e1;
 }
 
 .auth-message {
@@ -356,14 +390,26 @@ onMounted(() => {
   font-size: 0.85rem;
 }
 
-@media (max-width: 768px) {
-  .auth-panel {
-    flex-direction: column;
-    align-items: flex-start;
+@media (max-width: 640px) {
+  .app-container {
+    padding: 1.25rem 1rem;
   }
 
-  .auth-actions {
-    justify-content: flex-start;
+  .app-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.75rem;
+    padding-bottom: 1.25rem;
+    margin-bottom: 1.5rem;
+  }
+
+  .app-header h1 {
+    font-size: 1.75rem;
+  }
+
+  .stat-badge {
+    font-size: 0.8rem;
+    padding: 0.35rem 0.75rem;
   }
 }
 

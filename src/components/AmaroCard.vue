@@ -1,9 +1,15 @@
 <script setup lang="ts">
 import { AmaroBottle } from '../types/amaro';
 
-const props = defineProps<{
-  bottle: AmaroBottle;
-}>();
+const props = withDefaults(
+  defineProps<{
+    bottle: AmaroBottle;
+    canEdit?: boolean;
+  }>(),
+  {
+    canEdit: false,
+  }
+);
 
 const emit = defineEmits<{
   (e: 'edit', bottle: AmaroBottle): void;
@@ -87,7 +93,7 @@ const handleDelete = () => emit('delete', props.bottle);
       </span>
     </div>
 
-    <div class="card-actions">
+    <div v-if="canEdit" class="card-actions">
       <button type="button" class="edit-btn" @click="handleEdit">Edit</button>
       <button type="button" class="delete-btn" @click="handleDelete">Delete</button>
     </div>
