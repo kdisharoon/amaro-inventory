@@ -2,41 +2,33 @@
 
 ## 1. Custom Domain Setup Guide
 
-Steps to connect a custom domain (e.g., `amaro.yourdomain.com` or `yourdomain.com`) to the deployed CloudFront static site:
+Configuration for `amaro.dish.place` connecting to the deployed CloudFront static site:
 
-### Step 1: Request an ACM SSL Certificate
-1. Open the **AWS Certificate Manager (ACM)** console in region **US East (N. Virginia) `us-east-1`** (required by CloudFront).
-2. Click **Request Certificate** $\rightarrow$ **Public Certificate**.
-3. Add your domain name(s) (e.g., `amaro.yourdomain.com` or `yourdomain.com` + `*.yourdomain.com`).
-4. Select **DNS Validation** and request.
-5. Add the generated CNAME records into your domain registrar's DNS settings to validate domain ownership.
+- **Target Domain**: `amaro.dish.place`
+- **ACM Certificate ARN (`us-east-1`)**: `arn:aws:acm:us-east-1:137097288135:certificate/c0a08887-7b7d-42b0-ae14-6b4793014da7`
 
-### Step 2: Wire Domain & Certificate to CloudFront
-Update `SiteStack` in `infra/site-stack.ts` to attach the domain and certificate:
-```ts
-import * as acm from 'aws-cdk-lib/aws-certificatemanager';
+### Step 1: Request an ACM SSL Certificate (Completed)
+- Certificate created and pending/issued for `dish.place` / `*.dish.place` / `amaro.dish.place`.
 
-const certificate = acm.Certificate.fromCertificateArn(
-  this,
-  'SiteCert',
-  'arn:aws:acm:us-east-1:ACCOUNT_ID:certificate/CERTIFICATE_ID'
-);
+### Step 2: Wire Domain & Certificate to CloudFront (Configured in CDK)
+- Updated [infra/site-stack.ts](infra/site-stack.ts) and [bin/app.ts](bin/app.ts) with `domainNames: ['amaro.dish.place']` and the ACM certificate ARN.
 
-const distribution = new cloudfront.Distribution(this, 'SiteDistribution', {
-  domainNames: ['amaro.yourdomain.com'],
-  certificate,
-  // ... rest of distribution configuration ...
-});
-```
-
-### Step 3: Add DNS Target Record at Registrar
-- **Subdomain (`amaro.yourdomain.com`)**: Create a **CNAME** pointing to your CloudFront distribution domain (`dxxxxxxxx.cloudfront.net`).
-- **Apex / Root Domain (`yourdomain.com`)**: If using Route 53, create an **A (Alias)** record pointing to CloudFront. If using another DNS provider (Cloudflare, Namecheap, etc.), use **CNAME Flattening / ALIAS / ANAME**.
+### Step 3: Add DNS Target Record in Route 53
+Once the CDK stack deploys (or using your existing CloudFront distribution domain `dxxxxxxxx.cloudfront.net`):
+1. Open **Route 53 Console** $\rightarrow$ **Hosted zones** $\rightarrow$ click `dish.place`.
+2. Click **Create record**.
+3. Set:
+   - **Record name**: `amaro`
+   - **Record type**: `A`
+   - Toggle **Alias**: ON
+   - **Route traffic to**: Alias to CloudFront distribution
+   - **Choose distribution**: Select your CloudFront distribution (or paste the CloudFront domain name)
+4. Click **Create records**.
 
 ### Step 4: Update Google OAuth Authorized JavaScript Origins
 1. Open [Google Cloud Console Credentials](https://console.cloud.google.com/apis/credentials).
-2. Select the OAuth 2.0 Client ID.
-3. Add `https://amaro.yourdomain.com` (or `https://yourdomain.com`) under **Authorized JavaScript origins**.
+2. Select your OAuth 2.0 Client ID.
+3. Add `https://amaro.dish.place` under **Authorized JavaScript origins**.
 4. Save changes.
 
 ---
