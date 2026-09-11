@@ -1,24 +1,44 @@
 import { APIGatewayProxyEvent, APIGatewayProxyResult } from 'aws-lambda';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, ScanCommand, GetCommand, PutCommand, DeleteCommand } from '@aws-sdk/lib-dynamodb';
-import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
-import { DetectTextCommand, RekognitionClient } from '@aws-sdk/client-rekognition';
-import { TranslateClient, TranslateTextCommand } from '@aws-sdk/client-translate';
+import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { randomUUID } from 'crypto';
 
 const client = new DynamoDBClient({});
 const docClient = DynamoDBDocumentClient.from(client);
 const s3Client = new S3Client({});
-const rekognitionClient = new RekognitionClient({});
-const translateClient = new TranslateClient({});
 
 const TABLE_NAME = process.env.TABLE_NAME || 'AmaroTable';
 const IMAGE_BUCKET_NAME = process.env.IMAGE_BUCKET_NAME || '';
 const IMAGE_BASE_URL = process.env.IMAGE_BASE_URL || '';
-const TAVILY_API_KEY = process.env.TAVILY_API_KEY || '';
-const GOOGLE_VISION_API_KEY = process.env.GOOGLE_VISION_API_KEY || '';
-const VISION_WEB_DETECTION_ENABLED = (process.env.VISION_WEB_DETECTION_ENABLED || 'false').toLowerCase() === 'true';
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
+const ADMIN_GOOGLE_EMAIL = (process.env.ADMIN_GOOGLE_EMAIL || 'kdisharoon@gmail.com').toLowerCase();
+
+export const ITALIAN_REGIONS = [
+  'Abruzzo',
+  'Basilicata',
+  'Calabria',
+  'Campania',
+  'Emilia-Romagna',
+  'Friuli-Venezia Giulia',
+  'Lazio',
+  'Liguria',
+  'Lombardia',
+  'Marche',
+  'Molise',
+  'Piemonte',
+  'Puglia',
+  'Sardegna',
+  'Sicilia',
+  'Toscana',
+  'Trentino-Alto Adige',
+  'Umbria',
+  "Valle d'Aosta",
+  'Veneto',
+] as const;
 
 export interface AmaroItem {
   id: string;
@@ -42,7 +62,7 @@ interface GoogleTokenInfo {
   exp: string | number;
 }
 
-interface BottleAnalysisResult {
+export interface BottleAnalysisResult {
   name?: string;
   producer?: string;
   region?: string;
@@ -55,73 +75,6 @@ interface BottleAnalysisResult {
   descriptionNeedsReview: boolean;
   flavorNotesNeedsReview: boolean;
 }
-
-interface TavilySearchResult {
-  title?: string;
-  url?: string;
-  content?: string;
-  score?: number;
-}
-
-interface TavilySearchResponse {
-  results?: TavilySearchResult[];
-}
-
-interface TavilyExtractResult {
-  url?: string;
-  raw_content?: string;
-}
-
-interface TavilyExtractResponse {
-  results?: TavilyExtractResult[];
-}
-
-interface VisionWebEntity {
-  description?: string;
-  score?: number;
-}
-
-interface VisionBestGuessLabel {
-  label?: string;
-}
-
-interface VisionWebDetection {
-  webEntities?: VisionWebEntity[];
-  bestGuessLabels?: VisionBestGuessLabel[];
-}
-
-interface VisionAnnotateResponse {
-  responses?: Array<{
-    webDetection?: VisionWebDetection;
-  }>;
-}
-
-const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
-const ADMIN_GOOGLE_EMAIL = (process.env.ADMIN_GOOGLE_EMAIL || 'kdisharoon@gmail.com').toLowerCase();
-
-const REGION_HINTS = [
-  'Sicilia', 'Piemonte', 'Lombardia', 'Veneto', 'Toscana', 'Campania', 'Calabria', 'Sardegna',
-  'Trentino-Alto Adige', 'Trentino', 'Alto Adige', 'Emilia-Romagna', 'Puglia', 'Basilicata', 'Liguria', 'Lazio', 'Umbria', 'Abruzzo',
-  'Marche', 'Friuli-Venezia Giulia', 'Molise', 'Valle d\'Aosta'
-];
-
-const SEARCH_QUERY_TEMPLATES = [
-  '{name} {producer} amaro scheda tecnica gradazione botaniche note degustazione',
-  '{name} {region} amaro produttore origine gradazione alcolica',
-  '{name} {producer} amaro ABV flavor notes producer origin',
-  '{name} {region} amaro tasting notes alcohol percentage',
-];
-
-const SOURCE_PRIORITY_KEYWORDS = {
-  producer: ['distilleria', 'distillery', 'liquorificio', 'azienda', 'official', 'produttore', 'spirits'],
-  retail: ['shop', 'store', 'retail', 'wine', 'enoteca', 'spirits', 'liquor', 'buy', 'acquista'],
-  reddit: ['reddit.com', 'redd.it'],
-  blog: ['blog', 'magazine', 'journal', 'review', 'recensione', 'medium', 'substack'],
-};
-
-const TAVILY_TIMEOUT_MS = 4500;
-const GOOGLE_VISION_TIMEOUT_MS = 4000;
-
 
 const sanitizeExtension = (contentType: string, fileName?: string): string => {
   const lowerFileName = (fileName || '').toLowerCase();
@@ -144,886 +97,163 @@ const buildS3KeyFromImageUrl = (imageUrl: string): string | undefined => {
   return imageUrl.slice(base.length);
 };
 
-const normalizeWhitespace = (value: string): string => value.replace(/\s+/g, ' ').trim();
-
-const toTitleCase = (value: string): string =>
-  value
-    .toLowerCase()
-    .replace(/\b\w/g, (char) => char.toUpperCase());
-
-const isGenericAmaroName = (value?: string): boolean => {
-  const normalized = normalizeWhitespace((value || '').toLowerCase());
-  return !normalized || normalized === 'amaro' || normalized === 'amari' || normalized === 'amaro italiano';
-};
-
-const isSpecificAmaroName = (value?: string): boolean => {
-  const normalized = normalizeWhitespace(value || '');
-  if (!normalized || isGenericAmaroName(normalized)) return false;
-  const words = normalized.split(/\s+/);
-  return words.length >= 2 && normalized.length >= 8;
-};
-
-const hasSentenceMarkers = (value: string): boolean => {
-  const lower = value.toLowerCase();
-  return /\b(in cui|che|per offrire|offrire|alternativa|produzione industriale|with|made with|crafted to|offre|lavora)\b/.test(lower);
-};
-
-const looksLikeBadNameCandidate = (value?: string): boolean => {
-  const candidate = normalizeWhitespace(value || '');
-  if (!candidate) return true;
-  const words = candidate.split(/\s+/).length;
-  if (words > 6) return true;
-  if (candidate.length > 48) return true;
-  if (/[.,;:!?]/.test(candidate)) return true;
-  if (hasSentenceMarkers(candidate)) return true;
-  return false;
-};
-
-const looksLikeBadProducerCandidate = (value?: string): boolean => {
-  const candidate = normalizeWhitespace(value || '');
-  if (!candidate) return true;
-  if (candidate.length > 64) return true;
-  if (candidate.split(/\s+/).length > 8) return true;
-  if (hasSentenceMarkers(candidate)) return true;
-  return false;
-};
-
-const splitSentences = (value: string): string[] =>
-  value
-    .split(/(?<=[.!?])\s+/)
-    .map((part) => normalizeWhitespace(part))
-    .filter(Boolean);
-
-const extractAbv = (text: string): number | undefined => {
-  const match = text.match(/(\d{1,2}(?:\.\d)?)\s*%\s*(?:abv|alc\.?\/vol)?/i);
-  if (!match) return undefined;
-  const numeric = Number(match[1]);
-  if (Number.isNaN(numeric)) return undefined;
-  if (numeric < 5 || numeric > 80) return undefined;
-  return numeric;
-};
-
-const detectSweetness = (text: string): 'not-specified' | 'dry' | 'semi-sweet' | 'sweet' => {
-  const normalized = text.toLowerCase();
-  if (normalized.includes('semi-sweet')) return 'semi-sweet';
-  if (normalized.includes('sweet')) return 'sweet';
-  if (normalized.includes('dry')) return 'dry';
-  return 'not-specified';
-};
-
-const extractRegion = (text: string): string | undefined => {
-  const normalized = text.toLowerCase();
-  const match = REGION_HINTS.find((region) => normalized.includes(region.toLowerCase()));
-  if (match === 'Trentino' || match === 'Alto Adige') {
-    return 'Trentino-Alto Adige';
-  }
-  return match;
-};
-
-const looksLikeBrandLine = (line: string): boolean => {
-  const normalized = normalizeWhitespace(line);
-  if (!normalized || normalized.length < 3 || normalized.length > 48) return false;
-  if (/%/.test(normalized)) return false;
-  if (/\d/.test(normalized)) return false;
-  if (/\b(amaro|liquore|digestivo|prodotto|gradazione|vol)\b/i.test(normalized)) return false;
-  const words = normalized.split(/\s+/);
-  if (words.length > 4) return false;
-  return true;
-};
-
-const extractFlavorNotesFromDescription = (text: string): string[] => {
-  const normalized = text.toLowerCase();
-  const noteMatches: string[] = [];
-
-  const patterns = [
-    /(?:notes?|aromas?|hints?|flavors?)\s+of\s+([^.;]+)/gi,
-    /(?:with|featuring)\s+([^.;]+?)\s+(?:notes?|aromas?|hints?|flavors?)/gi,
-    /(?:note|sentori|aromi)\s+di\s+([^.;]+)/gi,
-    /(?:con)\s+([^.;]+?)\s+(?:note|sentori|aromi)/gi,
-  ];
-
-  for (const pattern of patterns) {
-    let match: RegExpExecArray | null;
-    while ((match = pattern.exec(normalized)) !== null) {
-      noteMatches.push(match[1]);
-    }
+const parseGeminiJson = (rawText: string): any => {
+  let cleaned = rawText.trim();
+  if (cleaned.startsWith('```json')) {
+    cleaned = cleaned.replace(/^```json\s*/i, '').replace(/\s*```$/, '');
+  } else if (cleaned.startsWith('```')) {
+    cleaned = cleaned.replace(/^```\s*/, '').replace(/\s*```$/, '');
   }
 
-  const splitNotes = noteMatches
-    .flatMap((segment) => segment.split(/,| and | e |\//i))
-    .map((entry) => normalizeWhitespace(entry.replace(/\b(a|an|the|soft|gentle|balanced|light|subtle|del|della|delle|degli|di|con)\b/gi, '')))
-    .map((entry) =>
-      entry
-        .replace(/\berbe aromatiche\b/gi, 'herbal')
-        .replace(/\bagrumi\b/gi, 'citrus')
-        .replace(/\barancia\b/gi, 'orange')
-        .replace(/\blimone\b/gi, 'lemon')
-        .replace(/\berbe\b/gi, 'herbs')
-        .replace(/\bginepro\b/gi, 'juniper')
-        .replace(/\bcannella\b/gi, 'cinnamon')
-        .replace(/\bvaniglia\b/gi, 'vanilla')
-        .replace(/\bmenta\b/gi, 'mint')
-        .replace(/\brabarbaro\b/gi, 'rhubarb')
-        .replace(/\bliquirizia\b/gi, 'licorice')
-        .replace(/\bchina\b/gi, 'quinine')
-        .replace(/\bcaramello\b/gi, 'caramel')
-    )
-    .filter((entry) => entry.length >= 3 && entry.length <= 40);
-
-  return Array.from(new Set(splitNotes)).slice(0, 6);
-};
-
-const buildSearchQueries = (name?: string, producer?: string, region?: string): string[] => {
-  const values = {
-    name: name || '',
-    producer: producer || '',
-    region: region || '',
-  };
-
-  const rendered = SEARCH_QUERY_TEMPLATES
-    .map((template) =>
-      template
-        .replace('{name}', values.name)
-        .replace('{producer}', values.producer)
-        .replace('{region}', values.region)
-    )
-    .map((query) => normalizeWhitespace(query))
-    .filter((query) => query.length >= 8);
-
-  return Array.from(new Set(rendered));
-};
-
-const buildCorroborationQueries = (name: string, visionHints: string[]): string[] => {
-  const base = [
-    `${name} produttore gradazione alcolica regione scheda tecnica`,
-    `${name} producer ABV region product sheet`,
-    `${name} amaro essentia mediterranea gradazione`,
-  ];
-
-  const hintQueries = visionHints
-    .map((hint) => normalizeWhitespace(`${name} ${hint} amaro producer ABV region`))
-    .filter((query) => query.length >= 10)
-    .slice(0, 2);
-
-  return Array.from(new Set([...base, ...hintQueries].map((query) => normalizeWhitespace(query)).filter(Boolean)));
-};
-
-const hostnameForUrl = (value?: string): string => {
-  try {
-    if (!value) return '';
-    const parsed = new URL(value);
-    return parsed.hostname.toLowerCase();
-  } catch {
-    return '';
-  }
-};
-
-const sourcePriorityRank = (url?: string): number => {
-  const host = hostnameForUrl(url);
-  if (!host) return 4;
-
-  const includesAny = (terms: string[]): boolean => terms.some((term) => host.includes(term));
-
-  if (includesAny(SOURCE_PRIORITY_KEYWORDS.producer)) return 0;
-  if (includesAny(SOURCE_PRIORITY_KEYWORDS.retail)) return 1;
-  if (includesAny(SOURCE_PRIORITY_KEYWORDS.reddit)) return 2;
-  if (includesAny(SOURCE_PRIORITY_KEYWORDS.blog)) return 3;
-  return 4;
-};
-
-const isHighTrustSource = (url?: string): boolean => {
-  const rank = sourcePriorityRank(url);
-  return rank === 0 || rank === 1;
-};
-
-const extractLikelyProducerFromWebText = (text: string): string | undefined => {
-  const match = text.match(/(?:produced by|distilled by|crafted by|from)\s+([^.;,]+)/i);
-  if (!match?.[1]) return undefined;
-  return normalizeWhitespace(match[1]).slice(0, 80);
-};
-
-const chooseDescriptionFromWebText = (text: string, name?: string): string | undefined => {
-  const sentences = splitSentences(text);
-  if (sentences.length === 0) return undefined;
-
-  const hasSpecificName = isSpecificAmaroName(name);
-  const preferred = sentences.filter((sentence) => {
-    const lower = sentence.toLowerCase();
-    const hasName = name ? lower.includes(name.toLowerCase()) : false;
-    const isProfileLike = /amaro|digestif|herbal|bitter|orange|citrus|botanical|abv|alc/i.test(sentence);
-    return hasSpecificName ? hasName : hasName || isProfileLike;
-  });
-
-  if (hasSpecificName && preferred.length === 0) {
-    return undefined;
+  const match = cleaned.match(/\{[\s\S]*\}/);
+  if (match) {
+    cleaned = match[0];
   }
 
-  const selected = (preferred.length > 0 ? preferred : sentences).slice(0, 2).join(' ');
-  return selected ? selected.slice(0, 320) : undefined;
+  return JSON.parse(cleaned);
 };
 
-const scoreConfidence = (
-  sourceCount: number,
-  description?: string,
-  flavorNotes?: string[],
-  hasCoreIdentity?: boolean
-): { description: BottleAnalysisResult['descriptionConfidence']; flavorNotes: BottleAnalysisResult['flavorNotesConfidence'] } => {
-  let descriptionConfidence: BottleAnalysisResult['descriptionConfidence'] = 'low';
-  let flavorNotesConfidence: BottleAnalysisResult['flavorNotesConfidence'] = 'low';
-
-  if (description && sourceCount >= 1) {
-    descriptionConfidence = 'medium';
-  }
-  if (Array.isArray(flavorNotes) && flavorNotes.length >= 1 && sourceCount >= 1) {
-    flavorNotesConfidence = 'medium';
+const callGemini = async (base64Image: string, mimeType: string): Promise<any> => {
+  if (!GEMINI_API_KEY) {
+    throw new Error('GEMINI_API_KEY is not configured on the backend Lambda.');
   }
 
-  if (description && flavorNotes && flavorNotes.length >= 2 && sourceCount >= 2 && hasCoreIdentity) {
-    descriptionConfidence = 'high';
-    flavorNotesConfidence = 'high';
-  }
+  const prompt = `You are an expert sommelier and spirits specialist cataloging an Italian Amaro collection.
+Analyze this bottle image and identify the exact amaro bottle. Search the web to verify producer details, regional origin, alcohol percentage (ABV), tasting notes, botanicals, and sweetness level.
 
-  return {
-    description: descriptionConfidence,
-    flavorNotes: flavorNotesConfidence,
-  };
-};
+Extract and return a JSON object with EXACTLY the following fields:
+- "name": (string) The specific name of the amaro (e.g., "Amaro Averna", "Amaro Lucano", "Amaro Nonino Quintessentia", "Cynar", "Braulio").
+- "producer": (string) The company or distillery that produces it (e.g., "Fratelli Averna", "Lucano 1894", "Nonino Distillatori", "Campari Group", "Peloni").
+- "region": (string) MUST be one of the official 20 Italian regions spelled in Italian: ["Abruzzo", "Basilicata", "Calabria", "Campania", "Emilia-Romagna", "Friuli-Venezia Giulia", "Lazio", "Liguria", "Lombardia", "Marche", "Molise", "Piemonte", "Puglia", "Sardegna", "Sicilia", "Toscana", "Trentino-Alto Adige", "Umbria", "Valle d'Aosta", "Veneto"]. If not Italian or unknown, leave empty or omit.
+- "abv": (number) The numerical ABV percentage (e.g., 29, 30, 16.5). If unknown, omit.
+- "description": (string) A concise, well-written English description (2-4 sentences) summarizing the amaro's heritage, key botanical profile, production style, and taste characteristics.
+- "flavorNotes": (array of strings) 3 to 7 distinctive flavor/botanical keywords in English (e.g., ["citrus", "gentian", "rhubarb", "caramel", "mint"]).
+- "sweetnessLevel": (string) One of "dry", "semi-sweet", "sweet", or "not-specified".
+- "descriptionConfidence": (string) "high", "medium", or "low".
+- "flavorNotesConfidence": (string) "high", "medium", or "low".
+- "descriptionNeedsReview": (boolean) true if confidence is medium or low, otherwise false.
+- "flavorNotesNeedsReview": (boolean) true if confidence is medium or low, otherwise false.
 
-const sourceBaseWeight = (rank: number): number => {
-  if (rank === 0) return 4.0;
-  if (rank === 1) return 3.0;
-  if (rank === 2) return 2.0;
-  if (rank === 3) return 1.4;
-  return 1.0;
-};
+Respond ONLY with valid JSON.`;
 
-const looksItalian = (text: string): boolean => {
-  const sample = text.toLowerCase();
-  if (!sample) return false;
-  return /\b(il|la|gli|della|delle|degli|amaro|liquore|erbe|sentori|aromi|gradazione|prodotto)\b/.test(sample);
-};
-
-const translateToEnglishIfNeeded = async (text?: string): Promise<string | undefined> => {
-  const value = normalizeWhitespace(text || '');
-  if (!value || !looksItalian(value)) return value || undefined;
-
-  try {
-    const response = await translateClient.send(
-      new TranslateTextCommand({
-        Text: value.slice(0, 4500),
-        SourceLanguageCode: 'it',
-        TargetLanguageCode: 'en',
-      })
-    );
-    const translated = normalizeWhitespace(response.TranslatedText || '');
-    return translated || value;
-  } catch (error) {
-    console.error('TranslateText failed', error);
-    return value;
-  }
-};
-
-const addVote = (map: Map<string, number>, key: string | undefined, weight: number) => {
-  const normalized = normalizeWhitespace(key || '');
-  if (!normalized) return;
-  map.set(normalized, (map.get(normalized) || 0) + weight);
-};
-
-interface WeightedStringEvidence {
-  score: number;
-  sources: Set<string>;
-}
-
-interface WeightedNumberEvidence {
-  score: number;
-  sources: Set<string>;
-}
-
-const addStringEvidence = (
-  map: Map<string, WeightedStringEvidence>,
-  key: string | undefined,
-  weight: number,
-  sourceHost: string,
-  isValid: (value?: string) => boolean
-) => {
-  const normalized = normalizeWhitespace(key || '');
-  if (!normalized || !isValid(normalized)) return;
-  const existing = map.get(normalized);
-  if (existing) {
-    existing.score += weight;
-    if (sourceHost) existing.sources.add(sourceHost);
-  } else {
-    map.set(normalized, {
-      score: weight,
-      sources: sourceHost ? new Set([sourceHost]) : new Set(),
-    });
-  }
-};
-
-const addNumberEvidence = (
-  map: Map<number, WeightedNumberEvidence>,
-  value: number,
-  weight: number,
-  sourceHost: string
-) => {
-  if (!Number.isFinite(value)) return;
-  const existing = map.get(value);
-  if (existing) {
-    existing.score += weight;
-    if (sourceHost) existing.sources.add(sourceHost);
-  } else {
-    map.set(value, {
-      score: weight,
-      sources: sourceHost ? new Set([sourceHost]) : new Set(),
-    });
-  }
-};
-
-const chooseStrongStringEvidence = (
-  map: Map<string, WeightedStringEvidence>,
-  minScore: number,
-  minSources: number
-): string | undefined => {
-  let bestValue: string | undefined;
-  let bestScore = 0;
-  for (const [value, evidence] of map.entries()) {
-    if (evidence.sources.size < minSources) continue;
-    if (evidence.score > bestScore) {
-      bestValue = value;
-      bestScore = evidence.score;
-    }
-  }
-  return bestScore >= minScore ? bestValue : undefined;
-};
-
-const chooseStrongNumberEvidence = (
-  map: Map<number, WeightedNumberEvidence>,
-  minScore: number,
-  minSources: number
-): number | undefined => {
-  let bestValue: number | undefined;
-  let bestScore = 0;
-  for (const [value, evidence] of map.entries()) {
-    if (evidence.sources.size < minSources) continue;
-    if (evidence.score > bestScore) {
-      bestValue = value;
-      bestScore = evidence.score;
-    }
-  }
-  return bestScore >= minScore ? bestValue : undefined;
-};
-
-const extractAbvCandidates = (text: string): number[] => {
-  const matches = Array.from(text.matchAll(/(\d{1,2}(?:\.\d)?)\s*%\s*(?:abv|alc\.?\/vol)?/gi));
-  const values = matches
-    .map((match) => Number(match[1]))
-    .filter((value) => Number.isFinite(value) && value >= 5 && value <= 80);
-  return Array.from(new Set(values));
-};
-
-const extractProducerCandidate = (text: string): string | undefined => {
-  const match = text.match(
-    /(?:produced by|distilled by|crafted by|prodotto da|distillato da|azienda|distilleria|liquorificio)\s+([^.;,]+)/i
-  );
-  if (!match?.[1]) return undefined;
-  const candidate = normalizeWhitespace(match[1]).slice(0, 80);
-  return looksLikeBadProducerCandidate(candidate) ? undefined : candidate;
-};
-
-const extractNameCandidate = (text: string): string | undefined => {
-  const match = text.match(/\b(amaro\s+[a-z0-9'\- ]{2,60})\b/i);
-  if (!match?.[1]) return undefined;
-  const candidate = normalizeWhitespace(match[1]).slice(0, 80);
-  return looksLikeBadNameCandidate(candidate) ? undefined : candidate;
-};
-
-const chooseTopVoted = (votes: Map<string, number>, minScore = 2): string | undefined => {
-  let best: string | undefined;
-  let bestScore = 0;
-  for (const [value, score] of votes.entries()) {
-    if (score > bestScore) {
-      best = value;
-      bestScore = score;
-    }
-  }
-  return bestScore >= minScore ? best : undefined;
-};
-
-const chooseTopVotedNumber = (votes: Map<number, number>, minScore = 2): number | undefined => {
-  let best: number | undefined;
-  let bestScore = 0;
-  for (const [value, score] of votes.entries()) {
-    if (score > bestScore) {
-      best = value;
-      bestScore = score;
-    }
-  }
-  return bestScore >= minScore ? best : undefined;
-};
-
-const fetchJsonWithTimeout = async (url: string, init: RequestInit, timeoutMs: number): Promise<any> => {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const response = await fetch(url, { ...init, signal: controller.signal });
-    return response;
-  } finally {
-    clearTimeout(timeout);
-  }
-};
-
-const googleVisionWebDetect = async (imageUrl: string): Promise<string[]> => {
-  if (!VISION_WEB_DETECTION_ENABLED || !GOOGLE_VISION_API_KEY) return [];
-
-  let response: Response;
-  try {
-    response = await fetchJsonWithTimeout(
-      `https://vision.googleapis.com/v1/images:annotate?key=${encodeURIComponent(GOOGLE_VISION_API_KEY)}`,
+  const requestBody = {
+    contents: [
       {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          requests: [
-            {
-              image: {
-                source: {
-                  imageUri: imageUrl,
-                },
-              },
-              features: [
-                {
-                  type: 'WEB_DETECTION',
-                  maxResults: 8,
-                },
-              ],
+        parts: [
+          {
+            inlineData: {
+              mimeType,
+              data: base64Image,
             },
-          ],
-        }),
+          },
+          {
+            text: prompt,
+          },
+        ],
       },
-      GOOGLE_VISION_TIMEOUT_MS
-    );
-  } catch (error) {
-    console.error('Google Vision web detection request failed', error);
-    return [];
-  }
-
-  if (!response.ok) {
-    console.error('Google Vision web detection failed', response.status);
-    return [];
-  }
-
-  const payload = (await response.json()) as VisionAnnotateResponse;
-  const detection = payload.responses?.[0]?.webDetection;
-  if (!detection) return [];
-
-  const bestGuesses = (detection.bestGuessLabels || [])
-    .map((entry) => normalizeWhitespace(entry.label || ''))
-    .filter((entry) => entry.length >= 3 && entry.length <= 60);
-
-  const entityHints = (detection.webEntities || [])
-    .filter((entry) => (entry.score || 0) >= 0.3)
-    .map((entry) => normalizeWhitespace(entry.description || ''))
-    .filter((entry) => entry.length >= 3 && entry.length <= 60)
-    .filter((entry) => !/^amaro$/i.test(entry));
-
-  return Array.from(new Set([...bestGuesses, ...entityHints])).slice(0, 4);
-};
-
-const tavilySearch = async (query: string, language: 'italian' | 'english'): Promise<TavilySearchResult[]> => {
-  if (!TAVILY_API_KEY) return [];
-
-  let response: Response;
-  try {
-    response = await fetchJsonWithTimeout(
-      'https://api.tavily.com/search',
+    ],
+    tools: [
       {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${TAVILY_API_KEY}`,
-        },
-        body: JSON.stringify({
-          query,
-          search_depth: 'basic',
-          max_results: 4,
-          include_answer: false,
-          include_raw_content: false,
-          include_usage: false,
-          topic: 'general',
-          country: 'italy',
-          language,
-        }),
+        googleSearch: {},
       },
-      TAVILY_TIMEOUT_MS
-    );
-  } catch (error) {
-    console.error('Tavily search request failed', error);
-    return [];
-  }
+    ],
+    generationConfig: {
+      temperature: 0.1,
+    },
+  };
+
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(requestBody),
+    }
+  );
 
   if (!response.ok) {
-    console.error('Tavily search failed', response.status);
-    return [];
+    const errorText = await response.text();
+    console.error('Gemini API Error:', response.status, errorText);
+    throw new Error(`Gemini API returned ${response.status}: ${errorText}`);
   }
 
-  const payload = (await response.json()) as TavilySearchResponse;
-  return Array.isArray(payload.results) ? payload.results : [];
-};
-
-const tavilyExtract = async (urls: string[], query: string): Promise<Map<string, string>> => {
-  if (!TAVILY_API_KEY || urls.length === 0) return new Map();
-
-  let response: Response;
-  try {
-    response = await fetchJsonWithTimeout(
-      'https://api.tavily.com/extract',
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${TAVILY_API_KEY}`,
-        },
-        body: JSON.stringify({
-          urls,
-          query,
-          extract_depth: 'basic',
-          format: 'text',
-          chunks_per_source: 2,
-          include_usage: false,
-        }),
-      },
-      TAVILY_TIMEOUT_MS
-    );
-  } catch (error) {
-    console.error('Tavily extract request failed', error);
-    return new Map();
+  const data = (await response.json()) as any;
+  const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!rawText) {
+    console.error('Gemini returned empty text or candidate:', JSON.stringify(data));
+    throw new Error('Gemini API did not return text candidate.');
   }
 
-  if (!response.ok) {
-    console.error('Tavily extract failed', response.status);
-    return new Map();
-  }
-
-  const payload = (await response.json()) as TavilyExtractResponse;
-  const output = new Map<string, string>();
-  for (const item of payload.results || []) {
-    const url = normalizeWhitespace(item.url || '');
-    const content = normalizeWhitespace(item.raw_content || '');
-    if (url && content) {
-      output.set(url, content);
-    }
-  }
-  return output;
-};
-
-const pickLikelyName = (lines: string[]): string | undefined => {
-  const candidates = lines
-    .map((line) => normalizeWhitespace(line))
-    .filter((line) => line.length >= 4 && line.length <= 48)
-    .filter((line) => !/%/.test(line));
-
-  let bestLine: string | undefined;
-  let bestScore = -Infinity;
-  for (const line of candidates) {
-    const lower = line.toLowerCase();
-    const words = line.split(/\s+/).length;
-    const letters = line.replace(/[^a-z]/gi, '');
-    const uppercaseRatio = letters.length > 0 ? (letters.match(/[A-Z]/g)?.length || 0) / letters.length : 0;
-
-    let score = 0;
-    if (/\bamaro\b/i.test(line)) score += 2;
-    if (words <= 4) score += 2;
-    if (words >= 7) score -= 2;
-    if (uppercaseRatio > 0.55) score += 1;
-    if (hasSentenceMarkers(lower)) score -= 3;
-    if (/\b(note|sentori|aromi|degustazione|prodotto)\b/i.test(line)) score -= 2;
-
-    if (score > bestScore) {
-      bestScore = score;
-      bestLine = line;
-    }
-  }
-
-  if (looksLikeBadNameCandidate(bestLine)) return undefined;
-
-  if (bestLine && /^amaro$/i.test(bestLine)) {
-    const amaroIndex = lines.findIndex((line) => normalizeWhitespace(line).toLowerCase() === 'amaro');
-    if (amaroIndex >= 0) {
-      const neighbors = [lines[amaroIndex - 1], lines[amaroIndex + 1], lines[amaroIndex + 2]]
-        .map((value) => normalizeWhitespace(value || ''))
-        .filter(Boolean)
-        .filter((value) => looksLikeBrandLine(value) && !/^amaro$/i.test(value));
-      if (neighbors.length > 0) {
-        return toTitleCase(`Amaro ${neighbors[0]}`);
-      }
-    }
-  }
-
-  return bestLine;
-};
-
-const pickLikelyProducer = (lines: string[], name?: string): string | undefined => {
-  const candidate = lines.find((line) => {
-    if (name && normalizeWhitespace(line) === name) return false;
-    return /distiller|liquor|spirits|azienda|house|fratelli|fratello|brothers/i.test(line);
-  });
-  const normalized = candidate ? normalizeWhitespace(candidate) : undefined;
-  if (normalized && !looksLikeBadProducerCandidate(normalized)) {
-    return normalized;
-  }
-
-  const fallback = lines
-    .map((line) => normalizeWhitespace(line))
-    .filter((line) => {
-      if (!looksLikeBrandLine(line)) return false;
-      if (name && line.toLowerCase() === name.toLowerCase()) return false;
-      if (/^amaro$/i.test(line)) return false;
-      return true;
-    })
-    .sort((a, b) => b.length - a.length)[0];
-
-  return fallback && !looksLikeBadProducerCandidate(fallback) ? toTitleCase(fallback) : undefined;
+  return parseGeminiJson(rawText);
 };
 
 const analyzeBottleImage = async (imageUrl: string): Promise<BottleAnalysisResult> => {
+  let imageBuffer: Buffer;
+  let mimeType = 'image/jpeg';
+
   const s3Key = buildS3KeyFromImageUrl(imageUrl);
-  let detectText;
-
   if (s3Key && IMAGE_BUCKET_NAME) {
-    detectText = await rekognitionClient.send(
-      new DetectTextCommand({
-        Image: {
-          S3Object: {
-            Bucket: IMAGE_BUCKET_NAME,
-            Name: s3Key,
-          },
-        },
-      })
-    );
+    try {
+      const getRes = await s3Client.send(
+        new GetObjectCommand({
+          Bucket: IMAGE_BUCKET_NAME,
+          Key: s3Key,
+        })
+      );
+      const bytes = await getRes.Body?.transformToByteArray();
+      if (!bytes) throw new Error('S3 image body empty');
+      imageBuffer = Buffer.from(bytes);
+      if (getRes.ContentType) mimeType = getRes.ContentType;
+    } catch (err) {
+      console.warn('Failed to fetch image directly from S3, falling back to HTTP fetch:', err);
+      const res = await fetch(imageUrl);
+      if (!res.ok) throw new Error(`Failed to fetch image: ${res.status}`);
+      const arrayBuf = await res.arrayBuffer();
+      imageBuffer = Buffer.from(arrayBuf);
+      const ct = res.headers.get('content-type');
+      if (ct) mimeType = ct;
+    }
   } else {
-    const imageResponse = await fetch(imageUrl);
-    if (!imageResponse.ok) {
-      throw new Error(`Unable to fetch image for analysis (Status ${imageResponse.status})`);
-    }
-
-    const contentType = imageResponse.headers.get('content-type') || '';
-    if (!contentType.startsWith('image/')) {
-      throw new Error('Provided URL is not an image.');
-    }
-
-    const imageBytes = new Uint8Array(await imageResponse.arrayBuffer());
-    detectText = await rekognitionClient.send(
-      new DetectTextCommand({
-        Image: {
-          Bytes: imageBytes,
-        },
-      })
-    );
+    const res = await fetch(imageUrl);
+    if (!res.ok) throw new Error(`Failed to fetch image: ${res.status}`);
+    const arrayBuf = await res.arrayBuffer();
+    imageBuffer = Buffer.from(arrayBuf);
+    const ct = res.headers.get('content-type');
+    if (ct) mimeType = ct;
   }
 
-  const lines = (detectText.TextDetections || [])
-    .filter((item) => item.Type === 'LINE' && item.DetectedText)
-    .map((item) => normalizeWhitespace(item.DetectedText || ''))
-    .filter(Boolean);
+  const base64Data = imageBuffer.toString('base64');
+  const parsed = await callGemini(base64Data, mimeType);
 
-  const combinedText = lines.join(' | ');
-  const ocrName = pickLikelyName(lines);
-  const ocrProducer = pickLikelyProducer(lines, ocrName);
-  const ocrRegion = extractRegion(combinedText);
-  const ocrAbv = extractAbv(combinedText);
+  const name = typeof parsed.name === 'string' && parsed.name.trim() ? parsed.name.trim() : undefined;
+  const producer = typeof parsed.producer === 'string' && parsed.producer.trim() ? parsed.producer.trim() : undefined;
 
-  let name = ocrName;
-  let producer = ocrProducer;
-  let region = ocrRegion;
-  let abv = ocrAbv;
-  const sweetnessLevel = detectSweetness(combinedText);
-
-  let description: string | undefined;
-  let flavorNotes: string[] = [];
-  let sourceCount = 0;
-  const visionHints = await googleVisionWebDetect(imageUrl);
-
-  if (TAVILY_API_KEY && (name || producer)) {
-    const baseQueries = buildSearchQueries(name, producer, region).slice(0, 2);
-    const hintQueries = visionHints
-      .map((hint) => normalizeWhitespace(`${name || ''} ${producer || ''} ${hint} amaro ABV producer region`))
-      .filter((query) => query.length >= 8)
-      .slice(0, 2);
-    const corroborationQueries = isSpecificAmaroName(name) ? buildCorroborationQueries(name!, visionHints) : [];
-    const queries = Array.from(new Set([...baseQueries, ...hintQueries, ...corroborationQueries])).slice(0, 6);
-    const allResults: TavilySearchResult[] = [];
-    const languages: Array<'italian' | 'english'> = ['italian', 'english'];
-
-    for (const query of queries) {
-      const queryResults = await Promise.all(languages.map((language) => tavilySearch(query, language)));
-      allResults.push(...queryResults.flat());
-      if (allResults.length >= 14) break;
-    }
-
-    const dedupedByUrl = new Map<string, TavilySearchResult>();
-    for (const result of allResults) {
-      const url = (result.url || '').trim();
-      if (!url) continue;
-      if (!dedupedByUrl.has(url)) {
-        dedupedByUrl.set(url, result);
-      }
-      if (dedupedByUrl.size >= 6) break;
-    }
-
-    const topResults = Array.from(dedupedByUrl.values())
-      .sort((a, b) => {
-        const rankA = sourcePriorityRank(a.url);
-        const rankB = sourcePriorityRank(b.url);
-        if (rankA !== rankB) return rankA - rankB;
-        return (b.score || 0) - (a.score || 0);
-      })
-      .slice(0, 6);
-
-    sourceCount = topResults.length;
-    const snippetText = topResults
-      .map((result) => `${result.title || ''}. ${result.content || ''}`)
-      .map((value) => normalizeWhitespace(value))
-      .filter(Boolean)
-      .join(' ');
-
-    const extractUrls = topResults
-      .slice(0, 2)
-      .map((result) => (result.url || '').trim())
-      .filter(Boolean);
-    const extractByUrl = await tavilyExtract(
-      extractUrls,
-      `${name || ''} ${producer || ''} amaro note degustazione flavor notes ABV gradazione regione`
-    );
-    const sourceTexts = topResults.map((result) => {
-      const url = normalizeWhitespace(result.url || '');
-      const extracted = extractByUrl.get(url) || '';
-      return normalizeWhitespace(`${result.title || ''}. ${result.content || ''}. ${extracted}`);
-    });
-    const webText = normalizeWhitespace(`${snippetText} ${sourceTexts.join(' ')}`);
-
-    const nameVotes = new Map<string, number>();
-    const producerVotes = new Map<string, number>();
-    const regionVotes = new Map<string, number>();
-    const abvVotes = new Map<number, number>();
-
-    const nameEvidence = new Map<string, WeightedStringEvidence>();
-    const producerEvidence = new Map<string, WeightedStringEvidence>();
-    const regionEvidence = new Map<string, WeightedStringEvidence>();
-    const abvEvidence = new Map<number, WeightedNumberEvidence>();
-
-    if (ocrName) addVote(nameVotes, ocrName, 2.2);
-    if (ocrProducer) addVote(producerVotes, ocrProducer, 2.0);
-    if (ocrRegion) addVote(regionVotes, ocrRegion, 1.8);
-    if (typeof ocrAbv === 'number') abvVotes.set(ocrAbv, (abvVotes.get(ocrAbv) || 0) + 1.8);
-
-    topResults.forEach((result, index) => {
-      const text = sourceTexts[index] || '';
-      if (!text) return;
-
-      const rank = sourcePriorityRank(result.url);
-      const relevancy = Math.max(0, Math.min(1.5, result.score || 0));
-      let weight = sourceBaseWeight(rank) + relevancy;
-      const host = hostnameForUrl(result.url);
-
-      const lowerText = text.toLowerCase();
-      if (ocrName && lowerText.includes(ocrName.toLowerCase())) weight += 0.8;
-      if (ocrProducer && lowerText.includes(ocrProducer.toLowerCase())) weight += 0.6;
-
-      addVote(nameVotes, extractNameCandidate(text), weight * 0.9);
-      addVote(producerVotes, extractProducerCandidate(text), weight * 1.0);
-      addVote(regionVotes, extractRegion(text), weight * 0.9);
-
-      for (const abvValue of extractAbvCandidates(text)) {
-        abvVotes.set(abvValue, (abvVotes.get(abvValue) || 0) + weight * 1.1);
-      }
-
-      if (isHighTrustSource(result.url)) {
-        addStringEvidence(nameEvidence, extractNameCandidate(text), weight, host, (value) => !looksLikeBadNameCandidate(value));
-        addStringEvidence(producerEvidence, extractProducerCandidate(text), weight, host, (value) => !looksLikeBadProducerCandidate(value));
-        addStringEvidence(regionEvidence, extractRegion(text), weight, host, () => true);
-        for (const abvValue of extractAbvCandidates(text)) {
-          addNumberEvidence(abvEvidence, abvValue, weight, host);
-        }
-      }
-    });
-
-    const confirmedName = chooseStrongStringEvidence(nameEvidence, 5.2, 2);
-    const confirmedProducer = chooseStrongStringEvidence(producerEvidence, 4.8, 2);
-    const confirmedRegion = chooseStrongStringEvidence(regionEvidence, 4.0, 2);
-    const confirmedAbv = chooseStrongNumberEvidence(abvEvidence, 4.2, 2);
-    const highTrustText = topResults
-      .filter((result) => isHighTrustSource(result.url))
-      .map((result, index) => sourceTexts[index] || '')
-      .join(' ');
-
-    if (!name || looksLikeBadNameCandidate(name)) {
-      name = confirmedName || chooseTopVoted(nameVotes, 2.2) || name;
-    }
-
-    if (!producer || looksLikeBadProducerCandidate(producer)) {
-      producer = confirmedProducer || chooseTopVoted(producerVotes, 2.2) || producer;
-    } else if (confirmedProducer) {
-      producer = confirmedProducer;
-    }
-
-    if (confirmedRegion && (!region || confirmedRegion.toLowerCase() !== region.toLowerCase())) {
-      region = confirmedRegion;
-    }
-
-    if (typeof confirmedAbv === 'number' && (typeof abv !== 'number' || Math.abs(confirmedAbv - abv) >= 0.5)) {
-      abv = confirmedAbv;
-    }
-
-    if (!region) {
-      region = extractRegion(highTrustText) || region;
-    }
-
-    if (typeof abv !== 'number') {
-      abv = extractAbv(highTrustText) || abv;
-    }
-
-    if (!producer) {
-      producer = extractLikelyProducerFromWebText(webText) || producer;
-    }
-
-    const canUseWebDescription = Boolean(name && !isGenericAmaroName(name) && producer);
-    if (canUseWebDescription) {
-      description = chooseDescriptionFromWebText(webText, name);
-      flavorNotes = extractFlavorNotesFromDescription(webText);
-    }
-
-    if (!name || isGenericAmaroName(name)) {
-      const guessedName = chooseDescriptionFromWebText(webText)?.split(/[,.]/)[0];
-      if (guessedName && /amaro/i.test(guessedName) && !looksLikeBadNameCandidate(guessedName)) {
-        name = normalizeWhitespace(guessedName).slice(0, 80);
-      }
-    }
+  let region: string | undefined = typeof parsed.region === 'string' && parsed.region.trim() ? parsed.region.trim() : undefined;
+  if (region) {
+    const matched = ITALIAN_REGIONS.find((r) => r.toLowerCase() === region?.toLowerCase());
+    region = matched || region;
   }
 
-  if (!description) {
-    const fallback = lines.slice(0, 3).join(' ');
-    description = fallback ? `Label text detected: ${fallback}` : undefined;
+  const abv = typeof parsed.abv === 'number' && !isNaN(parsed.abv) ? parsed.abv : undefined;
+  const description = typeof parsed.description === 'string' && parsed.description.trim() ? parsed.description.trim() : undefined;
+
+  const flavorNotes = Array.isArray(parsed.flavorNotes)
+    ? parsed.flavorNotes
+        .filter((n: any) => typeof n === 'string' && n.trim().length > 0)
+        .map((n: string) => n.trim())
+    : [];
+
+  let sweetnessLevel: BottleAnalysisResult['sweetnessLevel'] = 'not-specified';
+  if (['dry', 'semi-sweet', 'sweet'].includes(parsed.sweetnessLevel)) {
+    sweetnessLevel = parsed.sweetnessLevel;
   }
 
-  if (flavorNotes.length === 0 && description) {
-    flavorNotes = extractFlavorNotesFromDescription(description);
-  }
-
-  description = await translateToEnglishIfNeeded(description);
-  if (flavorNotes.length === 0 && description) {
-    flavorNotes = extractFlavorNotesFromDescription(description);
-  }
-
-  const confidence = scoreConfidence(
-    sourceCount,
-    description,
-    flavorNotes,
-    Boolean(name && producer && typeof abv === 'number')
-  );
-
-  const uniqueFlavorNotes = Array.from(new Set(flavorNotes.map((note) => normalizeWhitespace(note)))).slice(0, 6);
+  const descConf: BottleAnalysisResult['descriptionConfidence'] =
+    ['low', 'medium', 'high'].includes(parsed.descriptionConfidence) ? parsed.descriptionConfidence : 'high';
+  const flavConf: BottleAnalysisResult['flavorNotesConfidence'] =
+    ['low', 'medium', 'high'].includes(parsed.flavorNotesConfidence) ? parsed.flavorNotesConfidence : 'high';
 
   return {
     name,
@@ -1031,12 +261,12 @@ const analyzeBottleImage = async (imageUrl: string): Promise<BottleAnalysisResul
     region,
     abv,
     description,
-    flavorNotes: uniqueFlavorNotes,
+    flavorNotes,
     sweetnessLevel,
-    descriptionConfidence: confidence.description,
-    flavorNotesConfidence: confidence.flavorNotes,
-    descriptionNeedsReview: confidence.description !== 'high',
-    flavorNotesNeedsReview: confidence.flavorNotes !== 'high',
+    descriptionConfidence: descConf,
+    flavorNotesConfidence: flavConf,
+    descriptionNeedsReview: parsed.descriptionNeedsReview ?? (descConf !== 'high'),
+    flavorNotesNeedsReview: parsed.flavorNotesNeedsReview ?? (flavConf !== 'high'),
   };
 };
 

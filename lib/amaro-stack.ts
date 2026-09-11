@@ -7,7 +7,6 @@ import * as apigateway from 'aws-cdk-lib/aws-apigateway';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
 import * as origins from 'aws-cdk-lib/aws-cloudfront-origins';
-import * as iam from 'aws-cdk-lib/aws-iam';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
@@ -64,9 +63,7 @@ export class AmaroStack extends cdk.Stack {
     // 2. Node.js Lambda Handler
     const googleClientId = this.node.tryGetContext('googleClientId') ?? process.env.GOOGLE_CLIENT_ID ?? '';
     const adminGoogleEmail = this.node.tryGetContext('adminEmail') ?? process.env.ADMIN_GOOGLE_EMAIL ?? 'kdisharoon@gmail.com';
-    const tavilyApiKey = this.node.tryGetContext('tavilyApiKey') ?? process.env.TAVILY_API_KEY ?? '';
-    const googleVisionApiKey = this.node.tryGetContext('googleVisionApiKey') ?? process.env.GOOGLE_VISION_API_KEY ?? '';
-    const visionWebDetectionEnabled = this.node.tryGetContext('visionWebDetectionEnabled') ?? process.env.VISION_WEB_DETECTION_ENABLED ?? 'false';
+    const geminiApiKey = this.node.tryGetContext('geminiApiKey') ?? process.env.GEMINI_API_KEY ?? '';
 
     const amaroLambda = new lambdaNodejs.NodejsFunction(this, 'AmaroHandlerConstruct', {
       functionName: 'AmaroHandler',
@@ -79,9 +76,7 @@ export class AmaroStack extends cdk.Stack {
         TABLE_NAME: amaroTable.tableName,
         GOOGLE_CLIENT_ID: googleClientId,
         ADMIN_GOOGLE_EMAIL: adminGoogleEmail,
-        TAVILY_API_KEY: tavilyApiKey,
-        GOOGLE_VISION_API_KEY: googleVisionApiKey,
-        VISION_WEB_DETECTION_ENABLED: visionWebDetectionEnabled,
+        GEMINI_API_KEY: geminiApiKey,
         IMAGE_BUCKET_NAME: imageBucket.bucketName,
         IMAGE_BASE_URL: this.imageBaseUrl,
       },
@@ -91,22 +86,10 @@ export class AmaroStack extends cdk.Stack {
       },
     });
 
-    // Grant Lambda read/write permissions to AmaroTable
+    // Grant Lambda read/write permissions to AmaroTable and S3 image bucket
     amaroTable.grantReadWriteData(amaroLambda);
     imageBucket.grantPut(amaroLambda);
     imageBucket.grantRead(amaroLambda);
-    amaroLambda.addToRolePolicy(
-      new iam.PolicyStatement({
-        actions: ['rekognition:DetectText'],
-        resources: ['*'],
-      })
-    );
-    amaroLambda.addToRolePolicy(
-      new iam.PolicyStatement({
-        actions: ['translate:TranslateText'],
-        resources: ['*'],
-      })
-    );
 
     // 3. REST API Gateway
     const api = new apigateway.RestApi(this, 'AmaroApiGateway', {

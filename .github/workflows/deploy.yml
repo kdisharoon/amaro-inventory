@@ -29,19 +29,14 @@ jobs:
       - name: Validate required deployment inputs
         env:
           GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
-          TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
-          GOOGLE_VISION_API_KEY: ${{ secrets.GOOGLE_VISION_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
           if [ -z "$GOOGLE_CLIENT_ID" ]; then
             echo "GOOGLE_CLIENT_ID secret is required for Google sign-in."
             exit 1
           fi
-          if [ -z "$TAVILY_API_KEY" ]; then
-            echo "TAVILY_API_KEY secret is required for bottle enrichment."
-            exit 1
-          fi
-          if [ -z "$GOOGLE_VISION_API_KEY" ]; then
-            echo "GOOGLE_VISION_API_KEY secret is required when Vision web detection is enabled."
+          if [ -z "$GEMINI_API_KEY" ]; then
+            echo "GEMINI_API_KEY secret is required for bottle image analysis."
             exit 1
           fi
 
@@ -62,7 +57,7 @@ jobs:
           aws-region: ${{ secrets.AWS_REGION }}
 
       - name: Run CDK Diff
-        run: npx cdk diff --app "node build/bin/app.js" -c googleClientId=${{ secrets.GOOGLE_CLIENT_ID }} -c adminEmail=kdisharoon@gmail.com -c tavilyApiKey=${{ secrets.TAVILY_API_KEY }} -c googleVisionApiKey=${{ secrets.GOOGLE_VISION_API_KEY }} -c visionWebDetectionEnabled=true
+        run: npx cdk diff --app "node build/bin/app.js" -c googleClientId=${{ secrets.GOOGLE_CLIENT_ID }} -c adminEmail=kdisharoon@gmail.com -c geminiApiKey=${{ secrets.GEMINI_API_KEY }}
 
   cdk-deploy:
     name: CDK Deploy
@@ -82,19 +77,14 @@ jobs:
       - name: Validate required deployment inputs
         env:
           GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
-          TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
-          GOOGLE_VISION_API_KEY: ${{ secrets.GOOGLE_VISION_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
           if [ -z "$GOOGLE_CLIENT_ID" ]; then
             echo "GOOGLE_CLIENT_ID secret is required for Google sign-in."
             exit 1
           fi
-          if [ -z "$TAVILY_API_KEY" ]; then
-            echo "TAVILY_API_KEY secret is required for bottle enrichment."
-            exit 1
-          fi
-          if [ -z "$GOOGLE_VISION_API_KEY" ]; then
-            echo "GOOGLE_VISION_API_KEY secret is required when Vision web detection is enabled."
+          if [ -z "$GEMINI_API_KEY" ]; then
+            echo "GEMINI_API_KEY secret is required for bottle image analysis."
             exit 1
           fi
 
@@ -117,4 +107,4 @@ jobs:
         run: aws sts get-caller-identity
 
       - name: Deploy Stacks
-        run: npx cdk deploy --all --require-approval never --app "node build/bin/app.js" -c googleClientId=${{ secrets.GOOGLE_CLIENT_ID }} -c adminEmail=kdisharoon@gmail.com -c tavilyApiKey=${{ secrets.TAVILY_API_KEY }} -c googleVisionApiKey=${{ secrets.GOOGLE_VISION_API_KEY }} -c visionWebDetectionEnabled=true
+        run: npx cdk deploy --all --require-approval never --app "node build/bin/app.js" -c googleClientId=${{ secrets.GOOGLE_CLIENT_ID }} -c adminEmail=kdisharoon@gmail.com -c geminiApiKey=${{ secrets.GEMINI_API_KEY }}
