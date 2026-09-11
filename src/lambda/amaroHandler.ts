@@ -119,7 +119,7 @@ const callGemini = async (base64Image: string, mimeType: string): Promise<any> =
   }
 
   const prompt = `You are an expert sommelier and spirits specialist cataloging an Italian Amaro collection.
-Analyze this bottle image and identify the exact amaro bottle. Search the web to verify producer details, regional origin, alcohol percentage (ABV), tasting notes, botanicals, and sweetness level.
+Analyze this bottle image and identify the exact amaro bottle, including producer details, regional origin, alcohol percentage (ABV), tasting notes, botanicals, and sweetness level.
 
 Extract and return a JSON object with EXACTLY the following fields:
 - "name": (string) The specific name of the amaro (e.g., "Amaro Averna", "Amaro Lucano", "Amaro Nonino Quintessentia", "Cynar", "Braulio").
@@ -132,9 +132,7 @@ Extract and return a JSON object with EXACTLY the following fields:
 - "descriptionConfidence": (string) "high", "medium", or "low".
 - "flavorNotesConfidence": (string) "high", "medium", or "low".
 - "descriptionNeedsReview": (boolean) true if confidence is medium or low, otherwise false.
-- "flavorNotesNeedsReview": (boolean) true if confidence is medium or low, otherwise false.
-
-Respond ONLY with valid JSON.`;
+- "flavorNotesNeedsReview": (boolean) true if confidence is medium or low, otherwise false.`;
 
   const requestBody = {
     contents: [
@@ -152,13 +150,9 @@ Respond ONLY with valid JSON.`;
         ],
       },
     ],
-    tools: [
-      {
-        googleSearch: {},
-      },
-    ],
     generationConfig: {
       temperature: 0.1,
+      responseMimeType: 'application/json',
     },
   };
 
