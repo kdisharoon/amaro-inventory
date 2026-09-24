@@ -338,7 +338,7 @@
 
 * **08:30 – 12:00 | Monastery Cloisters & Subterranean Church Vaults**
   * **Morning Pastry:** **Pasticceria Savia** (*Via Etnea, 246*; *Hours:* **07:45–21:30**). Historic pastry shop (est. 1897). Order ***Crispelle di Riso al Miele*** (*~€2.00*) or ***Arancino al Ragù*** (*~€2.50*).
-  * **Monastero dei Benedettini di San Nicolò l'Arena:** *Piazza Dante, 32* (~*800m* West of Via Etnea; *Hours:* **09:00–17:00**; *Price:* **€10.00** guided tour). Europe's second-largest Benedictine monastery, featuring marble cloisters, Roman mosaic basements, and a subterranean garden built in a 1669 lava trench.
+  * **Monastero dei Benedettini di San Nicolò l'Arena:** *Piazza Dante, 32* (~*800m* West of Via Etnea; *Hours:* **BOOKED FOR 13:00 GUIDED TOUR**; *Price:* **€10.00** guided tour). Europe's second-largest Benedictine monastery, featuring marble cloisters, Roman mosaic basements, and a subterranean garden built in a 1669 lava trench.
   * **Chiesa di San Nicolò l'Arena:** *Piazza Dante*. (*Hours:* **09:00–13:00**; *Price:* **Free** / **€3.00** for roof dome). Colossal Baroque basilica containing a floor meridian line.
 
 * **12:00 – 14:00 | Fera 'o Luni Market & Rustic Street Food**
