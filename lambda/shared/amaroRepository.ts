@@ -13,7 +13,6 @@ export interface AmaroBottle {
   abv: number;
   description?: string;
   flavorNotes: string[];
-  sweetnessLevel?: 'dry' | 'semi-sweet' | 'sweet';
   rating?: number;
   dateAdded: string;
 }
@@ -52,7 +51,6 @@ export class AmaroRepository {
       abv: item.abv,
       description: item.description,
       flavorNotes: item.flavorNotes || [],
-      sweetnessLevel: item.sweetnessLevel,
       rating: item.rating,
       dateAdded: item.dateAdded,
     }));

@@ -42,7 +42,6 @@ export const handler = async (
       abv: payload.abv,
       description: payload.description || '',
       flavorNotes: Array.isArray(payload.flavorNotes) ? payload.flavorNotes : [],
-      sweetnessLevel: payload.sweetnessLevel,
       rating: typeof payload.rating === 'number' ? payload.rating : undefined,
       dateAdded: new Date().toISOString(),
     };

@@ -1,4 +1,3 @@
-export type SweetnessLevel = 'not-specified' | 'dry' | 'semi-sweet' | 'sweet';
 export type BottleStatus = 'unopened' | 'opened' | 'finished';
 
 export const ITALIAN_REGIONS = [
@@ -34,7 +33,6 @@ export interface AmaroBottle {
   abv?: number;
   description: string;
   flavorNotes: string[];
-  sweetnessLevel: SweetnessLevel;
   status: BottleStatus;
   imageUrl?: string;
   rating?: number;

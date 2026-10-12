@@ -12,7 +12,6 @@ export interface BottleImageAnalysisResult {
   abv?: number;
   description?: string;
   flavorNotes?: string[];
-  sweetnessLevel?: 'not-specified' | 'dry' | 'semi-sweet' | 'sweet';
   descriptionConfidence?: 'low' | 'medium' | 'high';
   flavorNotesConfidence?: 'low' | 'medium' | 'high';
   descriptionNeedsReview?: boolean;

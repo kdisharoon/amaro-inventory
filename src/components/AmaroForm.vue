@@ -24,7 +24,6 @@ const region = ref('');
 const abv = ref<number | null>(null);
 const description = ref('');
 const flavorNotes = ref('');
-const sweetnessLevel = ref<'not-specified' | 'dry' | 'semi-sweet' | 'sweet'>('not-specified');
 const status = ref<'unopened' | 'opened' | 'finished'>('unopened');
 
 const selectedImageFile = ref<File | null>(null);
@@ -126,7 +125,6 @@ const applyAnalysis = (analysis: BottleImageAnalysisResult) => {
   if (Array.isArray(analysis.flavorNotes) && analysis.flavorNotes.length > 0) {
     flavorNotes.value = analysis.flavorNotes.join(', ');
   }
-  if (analysis.sweetnessLevel) sweetnessLevel.value = analysis.sweetnessLevel;
 
   descriptionConfidence.value = analysis.descriptionConfidence || null;
   flavorNotesConfidence.value = analysis.flavorNotesConfidence || null;
@@ -212,7 +210,6 @@ const hydrateFormFromBottle = (bottle: AmaroBottle | null | undefined) => {
   abv.value = bottle.abv ?? null;
   description.value = bottle.description || '';
   flavorNotes.value = bottle.flavorNotes?.join(', ') || '';
-  sweetnessLevel.value = bottle.sweetnessLevel || 'not-specified';
   status.value = bottle.status || 'unopened';
   uploadedImageUrl.value = bottle.imageUrl || '';
   selectedImagePreviewUrl.value = bottle.imageUrl || '';
@@ -228,7 +225,6 @@ const resetForm = () => {
   abv.value = null;
   description.value = '';
   flavorNotes.value = '';
-  sweetnessLevel.value = 'not-specified';
   status.value = 'unopened';
   selectedImageFile.value = null;
   selectedImagePreviewUrl.value = '';
@@ -274,7 +270,6 @@ const submit = async () => {
         .split(',')
         .map((s) => s.trim())
         .filter(Boolean),
-      sweetnessLevel: sweetnessLevel.value,
       status: status.value,
       imageUrl: uploadedImageUrl.value || props.bottle?.imageUrl || undefined,
     };
@@ -389,13 +384,6 @@ const clearFlavorNotes = () => {
 
     <div class="row action-row">
       <label>{{ isEditMode ? 'Edit bottle' : 'Add bottle' }}</label>
-      <label>Sweetness</label>
-      <select v-model="sweetnessLevel">
-        <option value="not-specified">Not specified</option>
-        <option value="dry">Dry</option>
-        <option value="semi-sweet">Semi-sweet</option>
-        <option value="sweet">Sweet</option>
-      </select>
       <label>Status</label>
       <select v-model="status">
         <option value="unopened">Not Opened</option>

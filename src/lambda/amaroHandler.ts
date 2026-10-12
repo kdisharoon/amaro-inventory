@@ -48,7 +48,6 @@ export interface AmaroItem {
   abv?: number;
   description: string;
   flavorNotes: string[];
-  sweetnessLevel: 'not-specified' | 'dry' | 'semi-sweet' | 'sweet';
   status: 'unopened' | 'opened' | 'finished';
   imageUrl?: string;
   rating?: number;
@@ -69,7 +68,6 @@ export interface BottleAnalysisResult {
   abv?: number;
   description?: string;
   flavorNotes?: string[];
-  sweetnessLevel?: 'not-specified' | 'dry' | 'semi-sweet' | 'sweet';
   descriptionConfidence: 'low' | 'medium' | 'high';
   flavorNotesConfidence: 'low' | 'medium' | 'high';
   descriptionNeedsReview: boolean;
@@ -119,7 +117,7 @@ const callGemini = async (base64Image: string, mimeType: string): Promise<any> =
   }
 
   const prompt = `You are an expert sommelier and spirits specialist cataloging an Italian Amaro collection.
-Analyze this bottle image and identify the exact amaro bottle, including producer details, regional origin, alcohol percentage (ABV), tasting notes, botanicals, and sweetness level.
+Analyze this bottle image and identify the exact amaro bottle, including producer details, regional origin, alcohol percentage (ABV), tasting notes, and botanicals.
 
 Extract and return a JSON object with EXACTLY the following fields:
 - "name": (string) The specific name of the amaro (e.g., "Amaro Averna", "Amaro Lucano", "Amaro Nonino Quintessentia", "Cynar", "Braulio").
@@ -128,7 +126,6 @@ Extract and return a JSON object with EXACTLY the following fields:
 - "abv": (number) The numerical ABV percentage (e.g., 29, 30, 16.5). If unknown, omit.
 - "description": (string) A concise, well-written English description (2-4 sentences) summarizing the amaro's heritage, key botanical profile, production style, and taste characteristics.
 - "flavorNotes": (array of strings) 3 to 7 distinctive flavor/botanical keywords in English (e.g., ["citrus", "gentian", "rhubarb", "caramel", "mint"]).
-- "sweetnessLevel": (string) One of "dry", "semi-sweet", "sweet", or "not-specified".
 - "descriptionConfidence": (string) "high", "medium", or "low".
 - "flavorNotesConfidence": (string) "high", "medium", or "low".
 - "descriptionNeedsReview": (boolean) true if confidence is medium or low, otherwise false.
@@ -239,11 +236,6 @@ const analyzeBottleImage = async (imageUrl: string): Promise<BottleAnalysisResul
         .map((n: string) => n.trim())
     : [];
 
-  let sweetnessLevel: BottleAnalysisResult['sweetnessLevel'] = 'not-specified';
-  if (['dry', 'semi-sweet', 'sweet'].includes(parsed.sweetnessLevel)) {
-    sweetnessLevel = parsed.sweetnessLevel;
-  }
-
   const descConf: BottleAnalysisResult['descriptionConfidence'] =
     ['low', 'medium', 'high'].includes(parsed.descriptionConfidence) ? parsed.descriptionConfidence : 'high';
   const flavConf: BottleAnalysisResult['flavorNotesConfidence'] =
@@ -256,7 +248,6 @@ const analyzeBottleImage = async (imageUrl: string): Promise<BottleAnalysisResul
     abv,
     description,
     flavorNotes,
-    sweetnessLevel,
     descriptionConfidence: descConf,
     flavorNotesConfidence: flavConf,
     descriptionNeedsReview: parsed.descriptionNeedsReview ?? (descConf !== 'high'),
@@ -498,7 +489,6 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
         abv: typeof body.abv === 'number' && !isNaN(body.abv) ? body.abv : (body.abv === null ? undefined : existingBottle.Item.abv),
         description: typeof body.description === 'string' ? body.description : existingBottle.Item.description || '',
         flavorNotes: Array.isArray(body.flavorNotes) ? body.flavorNotes : existingBottle.Item.flavorNotes || [],
-        sweetnessLevel: body.sweetnessLevel || existingBottle.Item.sweetnessLevel || 'not-specified',
         status: body.status || existingBottle.Item.status || 'unopened',
         imageUrl: typeof body.imageUrl === 'string' && body.imageUrl.trim() !== ''
           ? body.imageUrl.trim()
@@ -612,7 +602,6 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
         abv: typeof body.abv === 'number' && !isNaN(body.abv) ? body.abv : undefined,
         description: body.description || '',
         flavorNotes: Array.isArray(body.flavorNotes) ? body.flavorNotes : [],
-        sweetnessLevel: body.sweetnessLevel || 'not-specified',
         status: body.status || 'unopened',
         imageUrl: typeof body.imageUrl === 'string' && body.imageUrl.trim() !== '' ? body.imageUrl.trim() : undefined,
         rating: body.rating ?? 0,

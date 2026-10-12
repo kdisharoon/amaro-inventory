@@ -16,18 +16,6 @@ const emit = defineEmits<{
   (e: 'delete', bottle: AmaroBottle): void;
 }>();
 
-const formatSweetness = (level?: string): string => {
-  if (!level) return '';
-  switch (level) {
-    case 'not-specified': return 'Not Specified';
-    case 'bone-dry': return 'Not Specified';
-    case 'dry': return 'Dry';
-    case 'semi-sweet': return 'Semi-Sweet';
-    case 'sweet': return 'Sweet';
-    default: return level;
-  }
-};
-
 const formatStatus = (status?: string): string => {
   if (!status) return 'Not Opened';
   switch (status) {
@@ -71,13 +59,6 @@ const handleDelete = () => emit('delete', props.bottle);
     <p v-if="bottle.description" class="description">{{ bottle.description }}</p>
 
     <div class="meta-row">
-      <span
-        v-if="bottle.sweetnessLevel && bottle.sweetnessLevel !== 'not-specified'"
-        :class="['sweetness-badge', bottle.sweetnessLevel]"
-      >
-        {{ formatSweetness(bottle.sweetnessLevel) }}
-      </span>
-
       <span class="status-badge" :class="bottle.status || 'unopened'">
         {{ formatStatus(bottle.status) }}
       </span>
@@ -198,30 +179,6 @@ const handleDelete = () => emit('delete', props.bottle);
   align-items: center;
   gap: 0.75rem;
   margin-bottom: 0.875rem;
-}
-
-.sweetness-badge {
-  font-size: 0.75rem;
-  font-weight: 600;
-  padding: 0.2rem 0.6rem;
-  border-radius: 9999px;
-  text-transform: uppercase;
-  letter-spacing: 0.025em;
-}
-
-.sweetness-badge.dry {
-  background-color: #feebc8;
-  color: #744210;
-}
-
-.sweetness-badge.semi-sweet {
-  background-color: #e2e8f0;
-  color: #2d3748;
-}
-
-.sweetness-badge.sweet {
-  background-color: #fed7d7;
-  color: #742a2a;
 }
 
 .rating {
