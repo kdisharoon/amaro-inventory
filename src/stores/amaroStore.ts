@@ -2,6 +2,15 @@ import { defineStore } from 'pinia';
 import { AmaroBottle, CreateAmaroBottlePayload, UpdateAmaroBottlePayload } from '../types/amaro';
 import { amaroApiClient } from '../api/amaroClient';
 
+function shuffleBottles<T>(items: T[]): T[] {
+  const result = [...items];
+  for (let i = result.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [result[i], result[j]] = [result[j], result[i]];
+  }
+  return result;
+}
+
 export interface AmaroFilterState {
   searchQuery: string;
 }
@@ -53,13 +62,18 @@ export const useAmaroStore = defineStore('amaro', {
       this.isLoading = true;
       this.error = null;
       try {
-        this.bottles = await amaroApiClient.getBottles();
+        const fetched = await amaroApiClient.getBottles();
+        this.bottles = shuffleBottles(fetched);
       } catch (err: any) {
         this.error = err?.message || 'Failed to load amaro collection.';
         console.error('Error in amaroStore.fetchBottles:', err);
       } finally {
         this.isLoading = false;
       }
+    },
+
+    shuffleCollection(): void {
+      this.bottles = shuffleBottles(this.bottles);
     },
 
     async addBottle(payload: CreateAmaroBottlePayload, idToken?: string): Promise<AmaroBottle | null> {

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useAmaroStore } from './stores/amaroStore';
 import AmaroFilterBar from './components/AmaroFilterBar.vue';
 import AmaroCard from './components/AmaroCard.vue';
@@ -13,6 +13,32 @@ const idToken = ref<string | null>(localStorage.getItem('amaro_google_id_token')
 const signedInEmail = ref<string | null>(localStorage.getItem('amaro_google_email'));
 const showGoogleFallbackButton = ref(false);
 const authMessage = ref('');
+
+const PAGE_SIZE = 20;
+const displayedCount = ref(PAGE_SIZE);
+const sentinelEl = ref<HTMLElement | null>(null);
+
+const displayedBottles = computed(() =>
+  amaroStore.filteredBottles.slice(0, displayedCount.value)
+);
+
+const hasMore = computed(() => displayedCount.value < amaroStore.filteredBottles.length);
+
+const loadMore = () => {
+  if (displayedCount.value < amaroStore.filteredBottles.length) {
+    displayedCount.value = Math.min(
+      displayedCount.value + PAGE_SIZE,
+      amaroStore.filteredBottles.length
+    );
+  }
+};
+
+watch(
+  () => amaroStore.filteredBottles,
+  () => {
+    displayedCount.value = PAGE_SIZE;
+  }
+);
 
 const getGoogleClientId = (): string =>
   window.__APP_CONFIG__?.GOOGLE_CLIENT_ID ||
@@ -186,12 +212,51 @@ const signOut = () => {
   window.google?.accounts?.id?.disableAutoSelect?.();
 };
 
+let observer: IntersectionObserver | null = null;
+
+const handleScroll = () => {
+  if (!hasMore.value) return;
+  const scrollPosition = window.innerHeight + window.scrollY;
+  const threshold = document.documentElement.offsetHeight - 350;
+  if (scrollPosition >= threshold) {
+    loadMore();
+  }
+};
+
+watch(sentinelEl, (newEl) => {
+  if (newEl && observer) {
+    observer.disconnect();
+    observer.observe(newEl);
+  }
+});
+
 onMounted(() => {
   if (idToken.value && !isTokenFresh(idToken.value)) {
     signOut();
   }
   amaroStore.fetchBottles();
   waitForGoogleAndRender();
+
+  if (typeof IntersectionObserver !== 'undefined') {
+    observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          loadMore();
+        }
+      },
+      { rootMargin: '250px' }
+    );
+    if (sentinelEl.value) {
+      observer.observe(sentinelEl.value);
+    }
+  }
+
+  window.addEventListener('scroll', handleScroll, { passive: true });
+});
+
+onUnmounted(() => {
+  observer?.disconnect();
+  window.removeEventListener('scroll', handleScroll);
 });
 </script>
 
@@ -204,7 +269,10 @@ onMounted(() => {
       </div>
       <div class="header-stats" v-if="!amaroStore.isLoading">
         <span class="stat-badge">
-          <strong>{{ amaroStore.filteredBottles.length }}</strong> / {{ amaroStore.totalBottlesCount }} Bottles
+          Showing <strong>{{ displayedBottles.length }}</strong> of {{ amaroStore.filteredBottles.length }} Bottles
+          <template v-if="amaroStore.filteredBottles.length !== amaroStore.totalBottlesCount">
+            ({{ amaroStore.totalBottlesCount }} Total)
+          </template>
         </span>
       </div>
     </header>
@@ -254,15 +322,27 @@ onMounted(() => {
         <button class="reset-btn" @click="amaroStore.resetFilters()">Reset Filters</button>
       </div>
 
-      <div v-else class="bottle-grid">
-        <AmaroCard
-          v-for="bottle in amaroStore.filteredBottles"
-          :key="bottle.id"
-          :bottle="bottle"
-          :can-edit="isLoggedIn"
-          @edit="handleEditBottle"
-          @delete="handleDeleteBottle"
-        />
+      <div v-else class="collection-section">
+        <div class="bottle-grid">
+          <AmaroCard
+            v-for="bottle in displayedBottles"
+            :key="bottle.id"
+            :bottle="bottle"
+            :can-edit="isLoggedIn"
+            @edit="handleEditBottle"
+            @delete="handleDeleteBottle"
+          />
+        </div>
+
+        <div ref="sentinelEl" class="scroll-sentinel" aria-hidden="true"></div>
+
+        <div v-if="hasMore" class="loading-more">
+          <div class="spinner-sm"></div>
+          <span>Loading more bottles...</span>
+        </div>
+        <div v-else-if="amaroStore.filteredBottles.length > PAGE_SIZE" class="end-of-collection">
+          <span>All {{ amaroStore.filteredBottles.length }} bottles loaded</span>
+        </div>
       </div>
     </main>
   </div>
@@ -462,5 +542,36 @@ onMounted(() => {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
   gap: 1.5rem;
+}
+
+.collection-section {
+  display: flex;
+  flex-direction: column;
+}
+
+.scroll-sentinel {
+  height: 1px;
+  width: 100%;
+  pointer-events: none;
+}
+
+.loading-more,
+.end-of-collection {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 1.75rem 0 0.5rem;
+  color: #718096;
+  font-size: 0.9rem;
+}
+
+.spinner-sm {
+  width: 18px;
+  height: 18px;
+  border: 2px solid #e2e8f0;
+  border-top-color: #3182ce;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
 }
 </style>
