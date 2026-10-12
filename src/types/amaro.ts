@@ -23,13 +23,26 @@ export const ITALIAN_REGIONS = [
   'Veneto',
 ] as const;
 
+export const INTERNATIONAL_REGIONS = [
+  'France',
+  'Germany',
+  'Greece',
+] as const;
+
+export const REGIONS = [
+  ...ITALIAN_REGIONS,
+  ...INTERNATIONAL_REGIONS,
+] as const;
+
 export type ItalianRegion = (typeof ITALIAN_REGIONS)[number];
+export type InternationalRegion = (typeof INTERNATIONAL_REGIONS)[number];
+export type Region = (typeof REGIONS)[number];
 
 export interface AmaroBottle {
   id: string;
   name: string;
   producer: string;
-  region?: ItalianRegion | string;
+  region?: Region | ItalianRegion | string;
   abv?: number;
   description: string;
   flavorNotes: string[];

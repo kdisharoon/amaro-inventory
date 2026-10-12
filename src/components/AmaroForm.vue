@@ -2,7 +2,13 @@
 import { computed, ref, watch } from 'vue';
 import { useAmaroStore } from '../stores/amaroStore';
 import { amaroApiClient, type BottleImageAnalysisResult } from '../api/amaroClient';
-import { type AmaroBottle, type CreateAmaroBottlePayload, type UpdateAmaroBottlePayload, ITALIAN_REGIONS } from '../types/amaro';
+import {
+  type AmaroBottle,
+  type CreateAmaroBottlePayload,
+  type UpdateAmaroBottlePayload,
+  ITALIAN_REGIONS,
+  INTERNATIONAL_REGIONS,
+} from '../types/amaro';
 
 const props = defineProps<{
   idToken?: string | null;
@@ -356,8 +362,13 @@ const clearFlavorNotes = () => {
 
     <div class="row">
       <select v-model="region" class="region-select">
-        <option value="">Region (optional)</option>
-        <option v-for="r in ITALIAN_REGIONS" :key="r" :value="r">{{ r }}</option>
+        <option value="">Region / Country (optional)</option>
+        <optgroup label="Italy">
+          <option v-for="r in ITALIAN_REGIONS" :key="r" :value="r">{{ r }}</option>
+        </optgroup>
+        <optgroup label="International">
+          <option v-for="r in INTERNATIONAL_REGIONS" :key="r" :value="r">{{ r }}</option>
+        </optgroup>
       </select>
       <input v-model.number="abv" type="number" min="0" max="100" step="0.1" placeholder="ABV % (optional)" />
     </div>

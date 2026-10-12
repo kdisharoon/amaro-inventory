@@ -40,6 +40,17 @@ export const ITALIAN_REGIONS = [
   'Veneto',
 ] as const;
 
+export const INTERNATIONAL_REGIONS = [
+  'France',
+  'Germany',
+  'Greece',
+] as const;
+
+export const ALL_REGIONS = [
+  ...ITALIAN_REGIONS,
+  ...INTERNATIONAL_REGIONS,
+] as const;
+
 export interface AmaroItem {
   id: string;
   name: string;
@@ -116,13 +127,13 @@ const callGemini = async (base64Image: string, mimeType: string): Promise<any> =
     throw new Error('GEMINI_API_KEY is not configured on the backend Lambda.');
   }
 
-  const prompt = `You are an expert sommelier and spirits specialist cataloging an Italian Amaro collection.
+  const prompt = `You are an expert sommelier and spirits specialist cataloging an Amaro and herbal liqueur collection.
 Analyze this bottle image and identify the exact amaro bottle, including producer details, regional origin, alcohol percentage (ABV), tasting notes, and botanicals.
 
 Extract and return a JSON object with EXACTLY the following fields:
-- "name": (string) The specific name of the amaro (e.g., "Amaro Averna", "Amaro Lucano", "Amaro Nonino Quintessentia", "Cynar", "Braulio").
+- "name": (string) The specific name of the amaro (e.g., "Amaro Averna", "Amaro Lucano", "Amaro Nonino Quintessentia", "Cynar", "Braulio", "Jägermeister", "Chartreuse").
 - "producer": (string) The company or distillery that produces it (e.g., "Fratelli Averna", "Lucano 1894", "Nonino Distillatori", "Campari Group", "Peloni").
-- "region": (string) MUST be one of the official 20 Italian regions spelled in Italian: ["Abruzzo", "Basilicata", "Calabria", "Campania", "Emilia-Romagna", "Friuli-Venezia Giulia", "Lazio", "Liguria", "Lombardia", "Marche", "Molise", "Piemonte", "Puglia", "Sardegna", "Sicilia", "Toscana", "Trentino-Alto Adige", "Umbria", "Valle d'Aosta", "Veneto"]. If not Italian or unknown, leave empty or omit.
+- "region": (string) If Italian, MUST be one of the official 20 Italian regions spelled in Italian: ["Abruzzo", "Basilicata", "Calabria", "Campania", "Emilia-Romagna", "Friuli-Venezia Giulia", "Lazio", "Liguria", "Lombardia", "Marche", "Molise", "Piemonte", "Puglia", "Sardegna", "Sicilia", "Toscana", "Trentino-Alto Adige", "Umbria", "Valle d'Aosta", "Veneto"]. If non-Italian, use the country name such as "Germany", "France", or "Greece". If unknown, leave empty or omit.
 - "abv": (number) The numerical ABV percentage (e.g., 29, 30, 16.5). If unknown, omit.
 - "description": (string) A concise, well-written English description (2-4 sentences) summarizing the amaro's heritage, key botanical profile, production style, and taste characteristics.
 - "flavorNotes": (array of strings) 3 to 7 distinctive flavor/botanical keywords in English (e.g., ["citrus", "gentian", "rhubarb", "caramel", "mint"]).
@@ -223,7 +234,7 @@ const analyzeBottleImage = async (imageUrl: string): Promise<BottleAnalysisResul
 
   let region: string | undefined = typeof parsed.region === 'string' && parsed.region.trim() ? parsed.region.trim() : undefined;
   if (region) {
-    const matched = ITALIAN_REGIONS.find((r) => r.toLowerCase() === region?.toLowerCase());
+    const matched = ALL_REGIONS.find((r) => r.toLowerCase() === region?.toLowerCase());
     region = matched || region;
   }
 
