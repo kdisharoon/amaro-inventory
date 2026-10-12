@@ -11,6 +11,35 @@ function shuffleBottles<T>(items: T[]): T[] {
   return result;
 }
 
+function getStatusRank(status?: string): number {
+  if (status === 'opened') return 0;
+  if (status === 'finished') return 2;
+  return 1; // unopened or default
+}
+
+function orderBottlesByStatusAndShuffle(items: AmaroBottle[]): AmaroBottle[] {
+  const opened: AmaroBottle[] = [];
+  const unopened: AmaroBottle[] = [];
+  const finished: AmaroBottle[] = [];
+
+  for (const bottle of items) {
+    const status = bottle.status || 'unopened';
+    if (status === 'opened') {
+      opened.push(bottle);
+    } else if (status === 'finished') {
+      finished.push(bottle);
+    } else {
+      unopened.push(bottle);
+    }
+  }
+
+  return [
+    ...shuffleBottles(opened),
+    ...shuffleBottles(unopened),
+    ...shuffleBottles(finished),
+  ];
+}
+
 export interface AmaroFilterState {
   searchQuery: string;
   status: BottleStatus | 'all';
@@ -85,7 +114,7 @@ export const useAmaroStore = defineStore('amaro', {
       this.error = null;
       try {
         const fetched = await amaroApiClient.getBottles();
-        this.bottles = shuffleBottles(fetched);
+        this.bottles = orderBottlesByStatusAndShuffle(fetched);
       } catch (err: any) {
         this.error = err?.message || 'Failed to load amaro collection.';
         console.error('Error in amaroStore.fetchBottles:', err);
@@ -95,7 +124,7 @@ export const useAmaroStore = defineStore('amaro', {
     },
 
     shuffleCollection(): void {
-      this.bottles = shuffleBottles(this.bottles);
+      this.bottles = orderBottlesByStatusAndShuffle(this.bottles);
     },
 
     async addBottle(payload: CreateAmaroBottlePayload, idToken?: string): Promise<AmaroBottle | null> {
@@ -103,7 +132,8 @@ export const useAmaroStore = defineStore('amaro', {
       this.error = null;
       try {
         const newBottle = await amaroApiClient.addBottle(payload, idToken);
-        this.bottles.push(newBottle);
+        const updatedList = [...this.bottles, newBottle];
+        this.bottles = updatedList.sort((a, b) => getStatusRank(a.status) - getStatusRank(b.status));
         return newBottle;
       } catch (err: any) {
         this.error = err?.message || 'Failed to add amaro bottle.';
@@ -119,7 +149,8 @@ export const useAmaroStore = defineStore('amaro', {
       this.error = null;
       try {
         const updatedBottle = await amaroApiClient.updateBottle(id, payload, idToken);
-        this.bottles = this.bottles.map((bottle) => bottle.id === id ? updatedBottle : bottle);
+        const updatedList = this.bottles.map((bottle) => bottle.id === id ? updatedBottle : bottle);
+        this.bottles = updatedList.sort((a, b) => getStatusRank(a.status) - getStatusRank(b.status));
         return updatedBottle;
       } catch (err: any) {
         this.error = err?.message || 'Failed to update amaro bottle.';
