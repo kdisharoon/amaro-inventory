@@ -319,7 +319,7 @@ onUnmounted(() => {
         @saved="handleFormSaved"
       />
 
-      <AmaroFilterBar />
+      <AmaroFilterBar @select-bottle="handleSelectBottle" />
 
       <div v-if="amaroStore.isLoading" class="loading-state">
         <div class="spinner"></div>

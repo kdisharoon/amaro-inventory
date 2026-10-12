@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia';
-import { AmaroBottle, CreateAmaroBottlePayload, UpdateAmaroBottlePayload } from '../types/amaro';
+import { AmaroBottle, BottleStatus, CreateAmaroBottlePayload, UpdateAmaroBottlePayload } from '../types/amaro';
 import { amaroApiClient } from '../api/amaroClient';
 
 function shuffleBottles<T>(items: T[]): T[] {
@@ -13,6 +13,7 @@ function shuffleBottles<T>(items: T[]): T[] {
 
 export interface AmaroFilterState {
   searchQuery: string;
+  status: BottleStatus | 'all';
 }
 
 export const useAmaroStore = defineStore('amaro', {
@@ -22,12 +23,21 @@ export const useAmaroStore = defineStore('amaro', {
     error: null as string | null,
     filters: {
       searchQuery: '',
+      status: 'all',
     } as AmaroFilterState,
   }),
 
   getters: {
     filteredBottles(state): AmaroBottle[] {
       return state.bottles.filter((bottle) => {
+        // Status filter
+        if (state.filters.status && state.filters.status !== 'all') {
+          const bottleStatus = bottle.status || 'unopened';
+          if (bottleStatus !== state.filters.status) {
+            return false;
+          }
+        }
+
         // Search filter (matches name, producer, region, or flavor notes)
         if (state.filters.searchQuery.trim() !== '') {
           const query = state.filters.searchQuery.toLowerCase();
@@ -49,6 +59,18 @@ export const useAmaroStore = defineStore('amaro', {
 
     totalBottlesCount(state): number {
       return state.bottles.length;
+    },
+
+    openedBottlesCount(state): number {
+      return state.bottles.filter((b) => b.status === 'opened').length;
+    },
+
+    unopenedBottlesCount(state): number {
+      return state.bottles.filter((b) => (b.status || 'unopened') === 'unopened').length;
+    },
+
+    finishedBottlesCount(state): number {
+      return state.bottles.filter((b) => b.status === 'finished').length;
     },
 
     availableRegions(state): string[] {
@@ -128,9 +150,17 @@ export const useAmaroStore = defineStore('amaro', {
       this.filters = { ...this.filters, ...partialFilters };
     },
 
+    getRandomOpenedBottle(): AmaroBottle | null {
+      const opened = this.bottles.filter((b) => b.status === 'opened');
+      if (opened.length === 0) return null;
+      const index = Math.floor(Math.random() * opened.length);
+      return opened[index];
+    },
+
     resetFilters(): void {
       this.filters = {
         searchQuery: '',
+        status: 'all',
       };
     },
   },
