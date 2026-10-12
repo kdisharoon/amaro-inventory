@@ -12,6 +12,7 @@ const props = withDefaults(
 );
 
 const emit = defineEmits<{
+  (e: 'select', bottle: AmaroBottle): void;
   (e: 'edit', bottle: AmaroBottle): void;
   (e: 'delete', bottle: AmaroBottle): void;
 }>();
@@ -26,12 +27,27 @@ const formatStatus = (status?: string): string => {
   }
 };
 
-const handleEdit = () => emit('edit', props.bottle);
-const handleDelete = () => emit('delete', props.bottle);
+const handleCardClick = () => emit('select', props.bottle);
+const handleEdit = (event: MouseEvent) => {
+  event.stopPropagation();
+  emit('edit', props.bottle);
+};
+const handleDelete = (event: MouseEvent) => {
+  event.stopPropagation();
+  emit('delete', props.bottle);
+};
 </script>
 
 <template>
-  <div class="amaro-card">
+  <div
+    class="amaro-card"
+    role="button"
+    tabindex="0"
+    :aria-label="`View details for ${bottle.name}`"
+    @click="handleCardClick"
+    @keydown.enter="handleCardClick"
+    @keydown.space.prevent="handleCardClick"
+  >
     <div class="image-container">
       <img
         v-if="bottle.imageUrl"
@@ -45,38 +61,33 @@ const handleDelete = () => emit('delete', props.bottle);
       </div>
     </div>
 
-    <div class="card-header">
-      <div>
+    <div class="card-content">
+      <div class="header-section">
         <h3 class="bottle-name">{{ bottle.name }}</h3>
         <p class="producer">
           {{ bottle.producer }}
           <template v-if="bottle.region"> &bull; <span class="region">{{ bottle.region }}</span></template>
         </p>
       </div>
-      <div v-if="typeof bottle.abv === 'number'" class="abv-badge">{{ bottle.abv }}% ABV</div>
-    </div>
 
-    <p v-if="bottle.description" class="description">{{ bottle.description }}</p>
+      <div class="meta-row">
+        <span class="status-badge" :class="bottle.status || 'unopened'">
+          {{ formatStatus(bottle.status) }}
+        </span>
 
-    <div class="meta-row">
-      <span class="status-badge" :class="bottle.status || 'unopened'">
-        {{ formatStatus(bottle.status) }}
-      </span>
+        <span v-if="typeof bottle.abv === 'number'" class="abv-badge">
+          {{ bottle.abv }}% ABV
+        </span>
 
-      <span v-if="bottle.rating" class="rating">
-        <span class="star">★</span> {{ bottle.rating }}/5
-      </span>
-    </div>
+        <span v-if="bottle.rating" class="rating">
+          <span class="star">★</span> {{ bottle.rating }}/5
+        </span>
+      </div>
 
-    <div v-if="bottle.flavorNotes && bottle.flavorNotes.length > 0" class="flavor-notes">
-      <span v-for="note in bottle.flavorNotes" :key="note" class="note-tag">
-        {{ note }}
-      </span>
-    </div>
-
-    <div v-if="canEdit" class="card-actions">
-      <button type="button" class="edit-btn" @click="handleEdit">Edit</button>
-      <button type="button" class="delete-btn" @click="handleDelete">Delete</button>
+      <div v-if="canEdit" class="card-actions" @click.stop>
+        <button type="button" class="edit-btn" @click="handleEdit">Edit</button>
+        <button type="button" class="delete-btn" @click="handleDelete">Delete</button>
+      </div>
     </div>
   </div>
 </template>
@@ -86,68 +97,81 @@ const handleDelete = () => emit('delete', props.bottle);
   background: #ffffff;
   border: 1px solid #e2e8f0;
   border-radius: 10px;
-  padding: 1.25rem;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.04);
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+  user-select: none;
 }
 
 .amaro-card:hover {
   transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.08);
+  border-color: #cbd5e1;
+}
+
+.amaro-card:focus-visible {
+  outline: 2px solid #3182ce;
+  outline-offset: 2px;
 }
 
 .image-container {
   width: 100%;
-  height: 220px;
-  margin-bottom: 0.9rem;
+  height: 160px;
+  background-color: #f8fafc;
+  border-bottom: 1px solid #f1f5f9;
+  overflow: hidden;
 }
 
 .bottle-image {
   width: 100%;
   height: 100%;
-  object-fit: cover;
-  border-radius: 8px;
-  border: 1px solid #e2e8f0;
+  object-fit: contain;
+  padding: 0.5rem;
+  box-sizing: border-box;
 }
 
 .bottle-image-placeholder {
   width: 100%;
   height: 100%;
-  background: #f8fafc;
-  border: 1px dashed #cbd5e1;
-  border-radius: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
 .placeholder-icon {
-  font-size: 2.75rem;
+  font-size: 2.25rem;
   opacity: 0.35;
-  user-select: none;
 }
 
-.card-header {
+.card-content {
+  padding: 0.85rem;
   display: flex;
+  flex-direction: column;
+  flex: 1;
   justify-content: space-between;
-  align-items: flex-start;
-  gap: 0.75rem;
-  margin-bottom: 0.75rem;
+  gap: 0.6rem;
+}
+
+.header-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
 }
 
 .bottle-name {
   margin: 0;
-  font-size: 1.15rem;
+  font-size: 1rem;
   font-weight: 700;
   color: #1a202c;
+  line-height: 1.3;
 }
 
 .producer {
-  margin: 0.25rem 0 0 0;
-  font-size: 0.875rem;
+  margin: 0;
+  font-size: 0.82rem;
   color: #718096;
 }
 
@@ -156,41 +180,17 @@ const handleDelete = () => emit('delete', props.bottle);
   font-weight: 500;
 }
 
-.abv-badge {
-  background-color: #f7fafc;
-  border: 1px solid #cbd5e0;
-  color: #2d3748;
-  font-weight: 600;
-  font-size: 0.8rem;
-  padding: 0.25rem 0.5rem;
-  border-radius: 6px;
-  white-space: nowrap;
-}
-
-.description {
-  font-size: 0.875rem;
-  color: #4a5568;
-  line-height: 1.4;
-  margin: 0 0 1rem 0;
-}
-
 .meta-row {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  margin-bottom: 0.875rem;
-}
-
-.rating {
-  font-size: 0.85rem;
-  font-weight: 600;
-  color: #d69e2e;
+  gap: 0.4rem;
+  flex-wrap: wrap;
 }
 
 .status-badge {
-  font-size: 0.75rem;
+  font-size: 0.7rem;
   font-weight: 600;
-  padding: 0.2rem 0.6rem;
+  padding: 0.15rem 0.5rem;
   border-radius: 9999px;
   text-transform: uppercase;
   letter-spacing: 0.025em;
@@ -211,30 +211,39 @@ const handleDelete = () => emit('delete', props.bottle);
   color: #1f2937;
 }
 
-.status-badge.unknown {
-  background-color: #edf2f7;
-  color: #4a5568;
+.abv-badge {
+  background-color: #f7fafc;
+  border: 1px solid #cbd5e0;
+  color: #2d3748;
+  font-weight: 600;
+  font-size: 0.72rem;
+  padding: 0.15rem 0.45rem;
+  border-radius: 5px;
+  white-space: nowrap;
 }
 
-.flavor-notes {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
+.rating {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #d69e2e;
 }
 
 .card-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 0.5rem;
-  margin-top: 0.9rem;
+  gap: 0.4rem;
+  margin-top: 0.25rem;
+  padding-top: 0.4rem;
+  border-top: 1px solid #f1f5f9;
 }
 
 .card-actions button {
   border: none;
-  border-radius: 6px;
-  padding: 0.45rem 0.7rem;
+  border-radius: 5px;
+  padding: 0.35rem 0.6rem;
   cursor: pointer;
   font-weight: 600;
+  font-size: 0.78rem;
 }
 
 .edit-btn {
@@ -242,16 +251,16 @@ const handleDelete = () => emit('delete', props.bottle);
   color: #1f2937;
 }
 
+.edit-btn:hover {
+  background: #cbd5e1;
+}
+
 .delete-btn {
   background: #fee2e2;
   color: #991b1b;
 }
 
-.note-tag {
-  background-color: #edf2f7;
-  color: #4a5568;
-  font-size: 0.75rem;
-  padding: 0.15rem 0.5rem;
-  border-radius: 4px;
+.delete-btn:hover {
+  background: #fecaca;
 }
 </style>

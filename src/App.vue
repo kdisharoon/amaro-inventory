@@ -3,12 +3,14 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useAmaroStore } from './stores/amaroStore';
 import AmaroFilterBar from './components/AmaroFilterBar.vue';
 import AmaroCard from './components/AmaroCard.vue';
+import AmaroDetailModal from './components/AmaroDetailModal.vue';
 import AmaroForm from './components/AmaroForm.vue';
 import type { AmaroBottle } from './types/amaro';
 
 const amaroStore = useAmaroStore();
 const showAddForm = ref(false);
 const editingBottle = ref<AmaroBottle | null>(null);
+const selectedBottle = ref<AmaroBottle | null>(null);
 const idToken = ref<string | null>(localStorage.getItem('amaro_google_id_token'));
 const signedInEmail = ref<string | null>(localStorage.getItem('amaro_google_email'));
 const showGoogleFallbackButton = ref(false);
@@ -179,8 +181,18 @@ const handleFormCancel = () => {
 };
 
 const handleFormSaved = () => {
+  if (selectedBottle.value && editingBottle.value) {
+    const fresh = amaroStore.bottles.find((b) => b.id === selectedBottle.value?.id);
+    if (fresh) {
+      selectedBottle.value = fresh;
+    }
+  }
   showAddForm.value = false;
   editingBottle.value = null;
+};
+
+const handleSelectBottle = (bottle: AmaroBottle) => {
+  selectedBottle.value = bottle;
 };
 
 const handleEditBottle = (bottle: AmaroBottle) => {
@@ -198,6 +210,8 @@ const handleDeleteBottle = async (bottle: AmaroBottle) => {
   const deleted = await amaroStore.deleteBottle(bottle.id, idToken.value || undefined);
   if (!deleted) {
     authMessage.value = amaroStore.error || 'Could not delete this bottle. Please try again.';
+  } else if (selectedBottle.value?.id === bottle.id) {
+    selectedBottle.value = null;
   }
 };
 
@@ -329,6 +343,7 @@ onUnmounted(() => {
             :key="bottle.id"
             :bottle="bottle"
             :can-edit="isLoggedIn"
+            @select="handleSelectBottle"
             @edit="handleEditBottle"
             @delete="handleDeleteBottle"
           />
@@ -345,6 +360,15 @@ onUnmounted(() => {
         </div>
       </div>
     </main>
+
+    <AmaroDetailModal
+      v-if="selectedBottle"
+      :bottle="selectedBottle"
+      :can-edit="isLoggedIn"
+      @close="selectedBottle = null"
+      @edit="(bottle) => { selectedBottle = null; handleEditBottle(bottle); }"
+      @delete="(bottle) => { handleDeleteBottle(bottle); }"
+    />
   </div>
 </template>
 
@@ -540,8 +564,8 @@ onUnmounted(() => {
 
 .bottle-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: 1.5rem;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 1.25rem;
 }
 
 .collection-section {
