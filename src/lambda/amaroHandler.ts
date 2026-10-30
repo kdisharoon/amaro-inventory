@@ -3,14 +3,18 @@ import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, ScanCommand, GetCommand, PutCommand, DeleteCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
 import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { SNSClient, PublishCommand } from '@aws-sdk/client-sns';
 import { randomUUID } from 'crypto';
 
 const client = new DynamoDBClient({});
 const docClient = DynamoDBDocumentClient.from(client);
 const s3Client = new S3Client({});
+const snsClient = new SNSClient({});
 
 const TABLE_NAME = process.env.TABLE_NAME || 'AmaroTable';
 const RATINGS_TABLE_NAME = process.env.RATINGS_TABLE_NAME || 'AmaroRatingsTable';
+const USERS_TABLE_NAME = process.env.USERS_TABLE_NAME || 'AmaroUsersTable';
+const USER_ALERTS_TOPIC_ARN = process.env.USER_ALERTS_TOPIC_ARN || '';
 const IMAGE_BUCKET_NAME = process.env.IMAGE_BUCKET_NAME || '';
 const IMAGE_BASE_URL = process.env.IMAGE_BASE_URL || '';
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
@@ -260,6 +264,29 @@ const extractBearerToken = (headers: APIGatewayProxyEvent['headers']): string | 
 interface AuthenticatedUser {
   email: string;
   sub: string;
+  name?: string;
+  picture?: string;
+}
+
+export interface UserRecord {
+  id: string; // USER#email
+  email: string;
+  name: string;
+  picture?: string;
+  status: 'active' | 'blocked';
+  role: 'admin' | 'member';
+  createdAt: string;
+  lastLoginAt: string;
+}
+
+export interface UserWithStats extends UserRecord {
+  ratingsCount: number;
+}
+
+export interface SystemConfig {
+  id: string; // __SYSTEM_CONFIG__
+  maxUsers: number;
+  lastCapacityNotificationAt?: string;
 }
 
 const decodeJwtPayload = (token: string): Record<string, any> | null => {
@@ -286,7 +313,11 @@ const getAuthenticatedUser = async (idToken: string): Promise<AuthenticatedUser 
         return null;
       }
 
-      const tokenInfo = (await response.json()) as GoogleTokenInfo & { sub?: string };
+      const tokenInfo = (await response.json()) as GoogleTokenInfo & {
+        sub?: string;
+        name?: string;
+        picture?: string;
+      };
       const nowEpochSeconds = Math.floor(Date.now() / 1000);
       const tokenExp = Number(tokenInfo.exp || '0');
       const isVerified = tokenInfo.email_verified === true || tokenInfo.email_verified === 'true';
@@ -295,6 +326,8 @@ const getAuthenticatedUser = async (idToken: string): Promise<AuthenticatedUser 
         return {
           email: tokenInfo.email.toLowerCase(),
           sub: tokenInfo.sub || tokenInfo.email.toLowerCase(),
+          name: tokenInfo.name,
+          picture: tokenInfo.picture,
         };
       }
       return null;
@@ -314,6 +347,8 @@ const getAuthenticatedUser = async (idToken: string): Promise<AuthenticatedUser 
         return {
           email: String(payload.email).toLowerCase(),
           sub: String(payload.sub || payload.email).toLowerCase(),
+          name: typeof payload.name === 'string' ? payload.name : undefined,
+          picture: typeof payload.picture === 'string' ? payload.picture : undefined,
         };
       }
     }
@@ -322,6 +357,76 @@ const getAuthenticatedUser = async (idToken: string): Promise<AuthenticatedUser 
   }
 
   return null;
+};
+
+const publishAlertEmail = async (subject: string, message: string): Promise<void> => {
+  if (!USER_ALERTS_TOPIC_ARN) {
+    console.warn('USER_ALERTS_TOPIC_ARN not configured; skipping email publish:', subject);
+    return;
+  }
+  try {
+    await snsClient.send(new PublishCommand({
+      TopicArn: USER_ALERTS_TOPIC_ARN,
+      Subject: subject.slice(0, 100),
+      Message: message,
+    }));
+    console.log('Successfully published SNS alert:', subject);
+  } catch (err) {
+    console.error('Failed to send SNS alert email:', err);
+  }
+};
+
+const getSystemConfig = async (): Promise<SystemConfig> => {
+  try {
+    const res = await docClient.send(new GetCommand({
+      TableName: USERS_TABLE_NAME,
+      Key: { id: '__SYSTEM_CONFIG__' },
+    }));
+    if (res.Item) {
+      return {
+        id: '__SYSTEM_CONFIG__',
+        maxUsers: typeof res.Item.maxUsers === 'number' ? res.Item.maxUsers : 10,
+        lastCapacityNotificationAt: res.Item.lastCapacityNotificationAt,
+      };
+    }
+  } catch (err) {
+    console.error('Failed to fetch system config from DynamoDB:', err);
+  }
+  return { id: '__SYSTEM_CONFIG__', maxUsers: 10 };
+};
+
+const saveSystemConfig = async (config: SystemConfig): Promise<void> => {
+  await docClient.send(new PutCommand({
+    TableName: USERS_TABLE_NAME,
+    Item: config,
+  }));
+};
+
+const getUserRecord = async (email: string): Promise<UserRecord | null> => {
+  try {
+    const res = await docClient.send(new GetCommand({
+      TableName: USERS_TABLE_NAME,
+      Key: { id: `USER#${email.toLowerCase()}` },
+    }));
+    return (res.Item as UserRecord) || null;
+  } catch (err) {
+    console.error('Failed to get user record:', err);
+    return null;
+  }
+};
+
+const getAllUsers = async (): Promise<UserRecord[]> => {
+  try {
+    const res = await docClient.send(new ScanCommand({
+      TableName: USERS_TABLE_NAME,
+    }));
+    return (res.Items || []).filter(
+      (item) => typeof item.id === 'string' && item.id.startsWith('USER#')
+    ) as UserRecord[];
+  } catch (err) {
+    console.error('Failed to scan users table:', err);
+    return [];
+  }
 };
 
 const isAuthorizedAdmin = async (idToken: string): Promise<boolean> => {
@@ -353,7 +458,351 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
   const isAllRatingsRequest = resourcePath === '/amaros/ratings' || requestPath.endsWith('/amaros/ratings');
   const isSingleRatingRequest = resourcePath === '/amaros/{id}/rating' || Boolean(requestPath.match(/\/amaros\/[^/]+\/rating$/));
 
+  const isAuthSessionRequest = resourcePath === '/auth/session' || requestPath.endsWith('/auth/session');
+  const isAdminUsersRequest = resourcePath === '/admin/users' || requestPath === '/admin/users' || requestPath.endsWith('/admin/users');
+  const isAdminUserStatusRequest = resourcePath === '/admin/users/{email}/status' || Boolean(requestPath.match(/\/admin\/users\/[^/]+\/status$/));
+  const isAdminSingleUserRequest = resourcePath === '/admin/users/{email}' || (requestPath.startsWith('/admin/users/') && !requestPath.endsWith('/status'));
+  const isAdminCapacityRequest = resourcePath === '/admin/capacity' || requestPath.endsWith('/admin/capacity');
+
   try {
+    // Auth: POST /auth/session - Verify Google token, register/update user, enforce capacity, send SNS alerts
+    if (httpMethod === 'POST' && isAuthSessionRequest) {
+      const idToken = extractBearerToken(event.headers);
+      if (!idToken) {
+        return {
+          statusCode: 401,
+          headers: corsHeaders,
+          body: JSON.stringify({ message: 'Missing bearer token.' }),
+        };
+      }
+
+      const authenticatedUser = await getAuthenticatedUser(idToken);
+      if (!authenticatedUser) {
+        return {
+          statusCode: 401,
+          headers: corsHeaders,
+          body: JSON.stringify({ message: 'Invalid or expired Google token.' }),
+        };
+      }
+
+      const email = authenticatedUser.email;
+      const isAdmin = email === ADMIN_GOOGLE_EMAIL;
+      let userRec = await getUserRecord(email);
+      const config = await getSystemConfig();
+
+      if (userRec) {
+        if (userRec.status === 'blocked') {
+          return {
+            statusCode: 403,
+            headers: corsHeaders,
+            body: JSON.stringify({
+              message: 'Your account has been deactivated or blocked by the administrator.',
+              code: 'USER_BLOCKED',
+            }),
+          };
+        }
+
+        userRec.lastLoginAt = new Date().toISOString();
+        if (authenticatedUser.name) userRec.name = authenticatedUser.name;
+        if (authenticatedUser.picture) userRec.picture = authenticatedUser.picture;
+        if (isAdmin) userRec.role = 'admin';
+
+        await docClient.send(new PutCommand({
+          TableName: USERS_TABLE_NAME,
+          Item: userRec,
+        }));
+
+        return {
+          statusCode: 200,
+          headers: corsHeaders,
+          body: JSON.stringify({
+            user: userRec,
+            isAdmin,
+            config: { maxUsers: config.maxUsers },
+          }),
+        };
+      }
+
+      // New user sign up - check limit
+      const allUsers = await getAllUsers();
+      const currentTotal = allUsers.length;
+
+      if (!isAdmin && currentTotal >= config.maxUsers) {
+        // Soft rejection: capacity limit reached
+        const now = Date.now();
+        const lastAlert = config.lastCapacityNotificationAt ? new Date(config.lastCapacityNotificationAt).getTime() : 0;
+        if (now - lastAlert > 30 * 60 * 1000) {
+          config.lastCapacityNotificationAt = new Date().toISOString();
+          await saveSystemConfig(config);
+          await publishAlertEmail(
+            `[Amaro Inventory] Limit reached: ${currentTotal}/${config.maxUsers} users`,
+            `A new user attempted to sign in, but user capacity is full (${currentTotal}/${config.maxUsers}):\n\n` +
+            `User: ${authenticatedUser.name || 'Unknown'} (${email})\n` +
+            `Timestamp: ${new Date().toLocaleString()}\n\n` +
+            `To approve more spaces, log in as administrator and open the User Management dashboard to approve +10 spaces.`
+          );
+        }
+
+        return {
+          statusCode: 403,
+          headers: corsHeaders,
+          body: JSON.stringify({
+            message: 'User registration is currently full. An alert has been sent to the administrator to approve more spaces.',
+            code: 'CAPACITY_REACHED',
+          }),
+        };
+      }
+
+      // Register new user
+      const newUser: UserRecord = {
+        id: `USER#${email}`,
+        email,
+        name: authenticatedUser.name || email.split('@')[0],
+        picture: authenticatedUser.picture || '',
+        status: 'active',
+        role: isAdmin ? 'admin' : 'member',
+        createdAt: new Date().toISOString(),
+        lastLoginAt: new Date().toISOString(),
+      };
+
+      await docClient.send(new PutCommand({
+        TableName: USERS_TABLE_NAME,
+        Item: newUser,
+      }));
+
+      // Send first-time sign-in alert email
+      const newTotal = currentTotal + 1;
+      await publishAlertEmail(
+        `[Amaro Inventory] New user signed in: ${newUser.name}`,
+        `A new user signed in to Amaro Inventory for the first time!\n\n` +
+        `Name: ${newUser.name}\n` +
+        `Email: ${newUser.email}\n` +
+        `Role: ${newUser.role}\n` +
+        `Joined: ${new Date().toLocaleString()}\n` +
+        `Total Registered Users: ${newTotal} / ${config.maxUsers}\n\n` +
+        `You can manage, block, or delete this user anytime in the User Management modal.`
+      );
+
+      if (newTotal >= config.maxUsers) {
+        config.lastCapacityNotificationAt = new Date().toISOString();
+        await saveSystemConfig(config);
+        await publishAlertEmail(
+          `[Amaro Inventory] Action Required: User limit reached (${newTotal}/${config.maxUsers})`,
+          `Your Amaro Inventory collection has reached its cap of ${config.maxUsers} users.\n\n` +
+          `New sign-ins will be paused until you approve additional space in the admin dashboard.`
+        );
+      }
+
+      return {
+        statusCode: 200,
+        headers: corsHeaders,
+        body: JSON.stringify({
+          user: newUser,
+          isAdmin,
+          config: { maxUsers: config.maxUsers },
+        }),
+      };
+    }
+
+    // Admin: GET /admin/users - List all users with stats
+    if (httpMethod === 'GET' && isAdminUsersRequest) {
+      const idToken = extractBearerToken(event.headers);
+      if (!idToken) {
+        return { statusCode: 401, headers: corsHeaders, body: JSON.stringify({ message: 'Missing bearer token.' }) };
+      }
+      const authorized = await isAuthorizedAdmin(idToken);
+      if (!authorized) {
+        return { statusCode: 403, headers: corsHeaders, body: JSON.stringify({ message: 'Forbidden. Administrator access required.' }) };
+      }
+
+      const users = await getAllUsers();
+      const config = await getSystemConfig();
+
+      const usersWithStats: UserWithStats[] = await Promise.all(
+        users.map(async (user) => {
+          try {
+            const countRes = await docClient.send(new QueryCommand({
+              TableName: RATINGS_TABLE_NAME,
+              KeyConditionExpression: 'userId = :uid',
+              ExpressionAttributeValues: { ':uid': user.email },
+              Select: 'COUNT',
+            }));
+            return {
+              ...user,
+              ratingsCount: countRes.Count || 0,
+            };
+          } catch (e) {
+            console.error('Error fetching rating count for user:', user.email, e);
+            return {
+              ...user,
+              ratingsCount: 0,
+            };
+          }
+        })
+      );
+
+      usersWithStats.sort((a, b) => {
+        if (a.role === 'admin' && b.role !== 'admin') return -1;
+        if (b.role === 'admin' && a.role !== 'admin') return 1;
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      });
+
+      return {
+        statusCode: 200,
+        headers: corsHeaders,
+        body: JSON.stringify({
+          users: usersWithStats,
+          totalUsers: usersWithStats.length,
+          maxUsers: config.maxUsers,
+        }),
+      };
+    }
+
+    // Admin: PUT /admin/users/{email}/status - Block or unblock user
+    if (httpMethod === 'PUT' && isAdminUserStatusRequest) {
+      const idToken = extractBearerToken(event.headers);
+      if (!idToken) {
+        return { statusCode: 401, headers: corsHeaders, body: JSON.stringify({ message: 'Missing bearer token.' }) };
+      }
+      const authorized = await isAuthorizedAdmin(idToken);
+      if (!authorized) {
+        return { statusCode: 403, headers: corsHeaders, body: JSON.stringify({ message: 'Forbidden. Administrator access required.' }) };
+      }
+
+      const rawEmail = pathParameters?.email || requestPath.match(/\/admin\/users\/([^/]+)\/status/)?.[1] || '';
+      const email = decodeURIComponent(rawEmail).toLowerCase();
+
+      if (!email) {
+        return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ message: 'User email is required.' }) };
+      }
+
+      if (email === ADMIN_GOOGLE_EMAIL) {
+        return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ message: 'Cannot block the administrator account.' }) };
+      }
+
+      const body = event.body ? JSON.parse(event.body) : {};
+      const status = body.status === 'blocked' ? 'blocked' : 'active';
+
+      const userRec = await getUserRecord(email);
+      if (!userRec) {
+        return { statusCode: 404, headers: corsHeaders, body: JSON.stringify({ message: `User '${email}' not found.` }) };
+      }
+
+      userRec.status = status;
+      await docClient.send(new PutCommand({
+        TableName: USERS_TABLE_NAME,
+        Item: userRec,
+      }));
+
+      return {
+        statusCode: 200,
+        headers: corsHeaders,
+        body: JSON.stringify(userRec),
+      };
+    }
+
+    // Admin: DELETE /admin/users/{email} - Delete user and purge ratings
+    if (httpMethod === 'DELETE' && isAdminSingleUserRequest) {
+      const idToken = extractBearerToken(event.headers);
+      if (!idToken) {
+        return { statusCode: 401, headers: corsHeaders, body: JSON.stringify({ message: 'Missing bearer token.' }) };
+      }
+      const authorized = await isAuthorizedAdmin(idToken);
+      if (!authorized) {
+        return { statusCode: 403, headers: corsHeaders, body: JSON.stringify({ message: 'Forbidden. Administrator access required.' }) };
+      }
+
+      const rawEmail = pathParameters?.email || requestPath.match(/\/admin\/users\/([^/]+)/)?.[1] || '';
+      const email = decodeURIComponent(rawEmail).toLowerCase();
+
+      if (!email) {
+        return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ message: 'User email is required.' }) };
+      }
+
+      if (email === ADMIN_GOOGLE_EMAIL) {
+        return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ message: 'Cannot delete the administrator account.' }) };
+      }
+
+      await docClient.send(new DeleteCommand({
+        TableName: USERS_TABLE_NAME,
+        Key: { id: `USER#${email}` },
+      }));
+
+      try {
+        const ratingRes = await docClient.send(new QueryCommand({
+          TableName: RATINGS_TABLE_NAME,
+          KeyConditionExpression: 'userId = :uid',
+          ExpressionAttributeValues: { ':uid': email },
+        }));
+
+        if (ratingRes.Items && ratingRes.Items.length > 0) {
+          for (const item of ratingRes.Items) {
+            await docClient.send(new DeleteCommand({
+              TableName: RATINGS_TABLE_NAME,
+              Key: {
+                userId: email,
+                bottleId: item.bottleId,
+              },
+            }));
+          }
+        }
+      } catch (err) {
+        console.error('Error deleting user ratings during purge:', err);
+      }
+
+      return {
+        statusCode: 200,
+        headers: corsHeaders,
+        body: JSON.stringify({ email, deleted: true }),
+      };
+    }
+
+    // Admin: GET & POST /admin/capacity - View or expand capacity
+    if (isAdminCapacityRequest) {
+      const idToken = extractBearerToken(event.headers);
+      if (!idToken) {
+        return { statusCode: 401, headers: corsHeaders, body: JSON.stringify({ message: 'Missing bearer token.' }) };
+      }
+      const authorized = await isAuthorizedAdmin(idToken);
+      if (!authorized) {
+        return { statusCode: 403, headers: corsHeaders, body: JSON.stringify({ message: 'Forbidden. Administrator access required.' }) };
+      }
+
+      const config = await getSystemConfig();
+
+      if (httpMethod === 'GET') {
+        const users = await getAllUsers();
+        return {
+          statusCode: 200,
+          headers: corsHeaders,
+          body: JSON.stringify({
+            maxUsers: config.maxUsers,
+            totalUsers: users.length,
+          }),
+        };
+      }
+
+      if (httpMethod === 'POST') {
+        const body = event.body ? JSON.parse(event.body) : {};
+        const increment = typeof body.increment === 'number' ? body.increment : 10;
+        const newMax = typeof body.maxUsers === 'number' ? body.maxUsers : config.maxUsers + increment;
+
+        config.maxUsers = Math.max(1, newMax);
+        await saveSystemConfig(config);
+
+        const users = await getAllUsers();
+        return {
+          statusCode: 200,
+          headers: corsHeaders,
+          body: JSON.stringify({
+            maxUsers: config.maxUsers,
+            totalUsers: users.length,
+            updated: true,
+          }),
+        };
+      }
+    }
+
     // Ratings: GET /amaros/ratings - Fetch all ratings for the authenticated user
     if (httpMethod === 'GET' && isAllRatingsRequest) {
       const idToken = extractBearerToken(event.headers);
@@ -371,6 +820,15 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
           statusCode: 401,
           headers: corsHeaders,
           body: JSON.stringify({ message: 'Invalid or expired credentials.' }),
+        };
+      }
+
+      const userRec = await getUserRecord(user.email);
+      if (userRec && userRec.status === 'blocked') {
+        return {
+          statusCode: 403,
+          headers: corsHeaders,
+          body: JSON.stringify({ message: 'Your account has been deactivated or blocked by the administrator.', code: 'USER_BLOCKED' }),
         };
       }
 
@@ -423,6 +881,15 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
           statusCode: 401,
           headers: corsHeaders,
           body: JSON.stringify({ message: 'Invalid or expired credentials.' }),
+        };
+      }
+
+      const userRec = await getUserRecord(user.email);
+      if (userRec && userRec.status === 'blocked') {
+        return {
+          statusCode: 403,
+          headers: corsHeaders,
+          body: JSON.stringify({ message: 'Your account has been deactivated or blocked by the administrator.', code: 'USER_BLOCKED' }),
         };
       }
 

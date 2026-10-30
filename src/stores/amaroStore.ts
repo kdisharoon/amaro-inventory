@@ -6,6 +6,8 @@ import {
   UpdateAmaroBottlePayload,
   UserRating,
   SetRatingPayload,
+  UserProfile,
+  AuthSessionResponse,
 } from '../types/amaro';
 import { amaroApiClient } from '../api/amaroClient';
 
@@ -60,6 +62,12 @@ export const useAmaroStore = defineStore('amaro', {
     userRatings: {} as Record<string, UserRating>,
     ratingsLoading: false as boolean,
     ratingsError: null as string | null,
+    currentUser: null as UserProfile | null,
+    isAdmin: false as boolean,
+    maxUsers: 10 as number,
+    adminUsersList: [] as UserProfile[],
+    adminUsersLoading: false as boolean,
+    adminUsersError: null as string | null,
     filters: {
       searchQuery: '',
       status: 'all',
@@ -268,6 +276,85 @@ export const useAmaroStore = defineStore('amaro', {
       this.userRatings = {};
       this.ratingsError = null;
       this.ratingsLoading = false;
+    },
+
+    clearSession(): void {
+      this.currentUser = null;
+      this.isAdmin = false;
+      this.adminUsersList = [];
+      this.adminUsersError = null;
+      this.userRatings = {};
+      this.ratingsError = null;
+      this.ratingsLoading = false;
+    },
+
+    async initSession(idToken: string): Promise<AuthSessionResponse | null> {
+      if (!idToken) return null;
+      try {
+        const session = await amaroApiClient.initAuthSession(idToken);
+        this.currentUser = session.user;
+        this.isAdmin = session.isAdmin;
+        this.maxUsers = session.config.maxUsers;
+        return session;
+      } catch (err: any) {
+        console.error('Error in amaroStore.initSession:', err);
+        throw err;
+      }
+    },
+
+    async fetchAdminUsers(idToken: string): Promise<void> {
+      if (!idToken) return;
+      this.adminUsersLoading = true;
+      this.adminUsersError = null;
+      try {
+        const res = await amaroApiClient.getAdminUsers(idToken);
+        this.adminUsersList = res.users;
+        this.maxUsers = res.maxUsers;
+      } catch (err: any) {
+        this.adminUsersError = err?.message || 'Failed to fetch users.';
+        console.error('Error in amaroStore.fetchAdminUsers:', err);
+      } finally {
+        this.adminUsersLoading = false;
+      }
+    },
+
+    async updateUserStatus(idToken: string, email: string, status: 'active' | 'blocked'): Promise<boolean> {
+      if (!idToken) return false;
+      try {
+        const updated = await amaroApiClient.updateUserStatus(idToken, email, status);
+        this.adminUsersList = this.adminUsersList.map((u) => u.email === email ? { ...u, status: updated.status } : u);
+        return true;
+      } catch (err: any) {
+        this.adminUsersError = err?.message || 'Failed to update user status.';
+        console.error('Error in amaroStore.updateUserStatus:', err);
+        throw err;
+      }
+    },
+
+    async deleteUser(idToken: string, email: string): Promise<boolean> {
+      if (!idToken) return false;
+      try {
+        await amaroApiClient.deleteUser(idToken, email);
+        this.adminUsersList = this.adminUsersList.filter((u) => u.email !== email);
+        return true;
+      } catch (err: any) {
+        this.adminUsersError = err?.message || 'Failed to delete user.';
+        console.error('Error in amaroStore.deleteUser:', err);
+        throw err;
+      }
+    },
+
+    async expandCapacity(idToken: string, increment: number = 10): Promise<boolean> {
+      if (!idToken) return false;
+      try {
+        const res = await amaroApiClient.expandCapacity(idToken, increment);
+        this.maxUsers = res.maxUsers;
+        return true;
+      } catch (err: any) {
+        this.adminUsersError = err?.message || 'Failed to expand capacity.';
+        console.error('Error in amaroStore.expandCapacity:', err);
+        throw err;
+      }
     },
   },
 });

@@ -4,6 +4,10 @@ import {
   UpdateAmaroBottlePayload,
   UserRating,
   SetRatingPayload,
+  UserProfile,
+  AuthSessionResponse,
+  AdminUsersResponse,
+  CapacityResponse,
 } from '../types/amaro';
 
 export interface ImageUploadTarget {
@@ -334,6 +338,136 @@ class AmaroApiClient {
     if (!response.ok) {
       throw await buildApiError(response, 'Failed to delete rating');
     }
+  }
+
+  /**
+   * Verify session upon Google sign-in via POST /auth/session
+   */
+  async initAuthSession(idToken: string): Promise<AuthSessionResponse> {
+    const baseUrl = this.getConfiguredBaseUrl();
+
+    const response = await runFetch(`${baseUrl}/auth/session`, {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/json',
+        'X-Amaro-Id-Token': `Bearer ${idToken}`,
+      },
+    }, 'Failed to initialize session');
+
+    if (!response.ok) {
+      throw await buildApiError(response, 'Sign-in rejected');
+    }
+
+    return getJsonBody<AuthSessionResponse>(response, 'Failed to initialize session');
+  }
+
+  /**
+   * Admin: Fetch all users via GET /admin/users
+   */
+  async getAdminUsers(idToken: string): Promise<AdminUsersResponse> {
+    const baseUrl = this.getConfiguredBaseUrl();
+
+    const response = await runFetch(`${baseUrl}/admin/users`, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json',
+        'X-Amaro-Id-Token': `Bearer ${idToken}`,
+      },
+    }, 'Failed to fetch users list');
+
+    if (!response.ok) {
+      throw await buildApiError(response, 'Failed to fetch users list');
+    }
+
+    return getJsonBody<AdminUsersResponse>(response, 'Failed to fetch users list');
+  }
+
+  /**
+   * Admin: Update user status (block/unblock) via PUT /admin/users/{email}/status
+   */
+  async updateUserStatus(idToken: string, email: string, status: 'active' | 'blocked'): Promise<UserProfile> {
+    const baseUrl = this.getConfiguredBaseUrl();
+
+    const response = await runFetch(`${baseUrl}/admin/users/${encodeURIComponent(email)}/status`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'X-Amaro-Id-Token': `Bearer ${idToken}`,
+      },
+      body: JSON.stringify({ status }),
+    }, 'Failed to update user status');
+
+    if (!response.ok) {
+      throw await buildApiError(response, 'Failed to update user status');
+    }
+
+    return getJsonBody<UserProfile>(response, 'Failed to update user status');
+  }
+
+  /**
+   * Admin: Delete user and purge ratings via DELETE /admin/users/{email}
+   */
+  async deleteUser(idToken: string, email: string): Promise<{ email: string; deleted: boolean }> {
+    const baseUrl = this.getConfiguredBaseUrl();
+
+    const response = await runFetch(`${baseUrl}/admin/users/${encodeURIComponent(email)}`, {
+      method: 'DELETE',
+      headers: {
+        'Accept': 'application/json',
+        'X-Amaro-Id-Token': `Bearer ${idToken}`,
+      },
+    }, 'Failed to delete user');
+
+    if (!response.ok) {
+      throw await buildApiError(response, 'Failed to delete user');
+    }
+
+    return getJsonBody<{ email: string; deleted: boolean }>(response, 'Failed to delete user');
+  }
+
+  /**
+   * Admin: Expand maximum allowed user capacity via POST /admin/capacity
+   */
+  async expandCapacity(idToken: string, increment: number = 10): Promise<CapacityResponse> {
+    const baseUrl = this.getConfiguredBaseUrl();
+
+    const response = await runFetch(`${baseUrl}/admin/capacity`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'X-Amaro-Id-Token': `Bearer ${idToken}`,
+      },
+      body: JSON.stringify({ increment }),
+    }, 'Failed to expand user capacity');
+
+    if (!response.ok) {
+      throw await buildApiError(response, 'Failed to expand user capacity');
+    }
+
+    return getJsonBody<CapacityResponse>(response, 'Failed to expand user capacity');
+  }
+
+  /**
+   * Admin: Get current capacity stats via GET /admin/capacity
+   */
+  async getCapacity(idToken: string): Promise<CapacityResponse> {
+    const baseUrl = this.getConfiguredBaseUrl();
+
+    const response = await runFetch(`${baseUrl}/admin/capacity`, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json',
+        'X-Amaro-Id-Token': `Bearer ${idToken}`,
+      },
+    }, 'Failed to fetch capacity');
+
+    if (!response.ok) {
+      throw await buildApiError(response, 'Failed to fetch capacity');
+    }
+
+    return getJsonBody<CapacityResponse>(response, 'Failed to fetch capacity');
   }
 }
 

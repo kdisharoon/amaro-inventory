@@ -70,3 +70,35 @@ export interface SetRatingPayload {
   score: number;
   notes?: string;
 }
+
+export interface UserProfile {
+  id: string;
+  email: string;
+  name: string;
+  picture?: string;
+  status: 'active' | 'blocked';
+  role: 'admin' | 'member';
+  createdAt: string;
+  lastLoginAt: string;
+  ratingsCount?: number;
+}
+
+export interface AuthSessionResponse {
+  user: UserProfile;
+  isAdmin: boolean;
+  config: {
+    maxUsers: number;
+  };
+}
+
+export interface AdminUsersResponse {
+  users: UserProfile[];
+  totalUsers: number;
+  maxUsers: number;
+}
+
+export interface CapacityResponse {
+  maxUsers: number;
+  totalUsers: number;
+  updated?: boolean;
+}

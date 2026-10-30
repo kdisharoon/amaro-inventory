@@ -5,10 +5,12 @@ import AmaroFilterBar from './components/AmaroFilterBar.vue';
 import AmaroCard from './components/AmaroCard.vue';
 import AmaroDetailModal from './components/AmaroDetailModal.vue';
 import AmaroForm from './components/AmaroForm.vue';
+import AdminUsersModal from './components/AdminUsersModal.vue';
 import type { AmaroBottle } from './types/amaro';
 
 const amaroStore = useAmaroStore();
 const showAddForm = ref(false);
+const showAdminModal = ref(false);
 const editingBottle = ref<AmaroBottle | null>(null);
 const selectedBottle = ref<AmaroBottle | null>(null);
 const idToken = ref<string | null>(localStorage.getItem('amaro_google_id_token'));
@@ -77,7 +79,19 @@ const isTokenFresh = (token?: string | null): boolean => {
 
 const isLoggedIn = computed(() => Boolean(idToken.value && isTokenFresh(idToken.value)));
 
-const handleGoogleCredential = (response: { credential?: string }) => {
+const adminEmail = (
+  window.__APP_CONFIG__?.ADMIN_EMAIL ||
+  import.meta.env.VITE_ADMIN_EMAIL ||
+  'kdisharoon@gmail.com'
+).toLowerCase();
+
+const isAdmin = computed(() => {
+  if (!isLoggedIn.value) return false;
+  if (amaroStore.isAdmin) return true;
+  return signedInEmail.value?.toLowerCase() === adminEmail;
+});
+
+const handleGoogleCredential = async (response: { credential?: string }) => {
   if (!response?.credential) return;
   const payload = decodeJwtPayload(response.credential);
   const email = payload?.email as string | undefined;
@@ -87,9 +101,24 @@ const handleGoogleCredential = (response: { credential?: string }) => {
   signedInEmail.value = email;
   showGoogleFallbackButton.value = false;
   authMessage.value = '';
-  localStorage.setItem('amaro_google_id_token', response.credential);
-  localStorage.setItem('amaro_google_email', email);
-  amaroStore.fetchUserRatings(response.credential);
+
+  try {
+    await amaroStore.initSession(response.credential);
+    localStorage.setItem('amaro_google_id_token', response.credential);
+    localStorage.setItem('amaro_google_email', email);
+    amaroStore.fetchUserRatings(response.credential);
+  } catch (err: any) {
+    console.error('Session initialization error:', err);
+    const errText = err?.message || '';
+    if (errText.includes('CAPACITY_REACHED')) {
+      authMessage.value = 'User registration is currently full (10/10 capacity). An alert has been sent to the administrator to approve more spaces.';
+    } else if (errText.includes('USER_BLOCKED')) {
+      authMessage.value = 'Your account has been deactivated or blocked by the administrator.';
+    } else {
+      authMessage.value = errText || 'Could not complete sign-in. Please try again.';
+    }
+    signOut();
+  }
 };
 
 const initializeGoogleIdentity = () => {
@@ -220,11 +249,12 @@ const signOut = () => {
   idToken.value = null;
   signedInEmail.value = null;
   showAddForm.value = false;
+  showAdminModal.value = false;
   showGoogleFallbackButton.value = false;
   authMessage.value = '';
   localStorage.removeItem('amaro_google_id_token');
   localStorage.removeItem('amaro_google_email');
-  amaroStore.clearUserRatings();
+  amaroStore.clearSession();
   window.google?.accounts?.id?.disableAutoSelect?.();
 };
 
@@ -250,6 +280,13 @@ onMounted(() => {
   if (idToken.value && !isTokenFresh(idToken.value)) {
     signOut();
   } else if (idToken.value && isTokenFresh(idToken.value)) {
+    amaroStore.initSession(idToken.value).catch((err) => {
+      console.warn('Session check on mount failed:', err);
+      if (err?.message?.includes('USER_BLOCKED')) {
+        authMessage.value = 'Your account has been deactivated or blocked by the administrator.';
+        signOut();
+      }
+    });
     amaroStore.fetchUserRatings(idToken.value);
   }
   amaroStore.fetchBottles();
@@ -299,11 +336,22 @@ onUnmounted(() => {
       <section class="auth-panel">
         <div class="auth-actions">
           <template v-if="isLoggedIn">
-            <button class="toggle-add-btn" @click="handleAddBottleClick">
+            <button
+              v-if="isAdmin"
+              type="button"
+              class="admin-users-btn"
+              @click="showAdminModal = true"
+            >
+              👥 Manage Users
+            </button>
+            <button v-if="isAdmin" class="toggle-add-btn" @click="handleAddBottleClick">
               {{ showAddForm && !editingBottle ? 'Hide Add Form' : 'Add Bottle' }}
             </button>
             <button class="signout-btn" @click="signOut">Log Out</button>
-            <p v-if="signedInEmail" class="signed-in-as">Signed in as <strong>{{ signedInEmail }}</strong></p>
+            <p v-if="signedInEmail" class="signed-in-as">
+              Signed in as <strong>{{ signedInEmail }}</strong>
+              <span v-if="isAdmin" class="admin-tag">Admin</span>
+            </p>
           </template>
           <template v-else>
             <button class="login-btn" @click="handleLoginClick">Log In</button>
@@ -315,7 +363,7 @@ onUnmounted(() => {
       </section>
 
       <AmaroForm
-        v-if="showAddForm && isLoggedIn"
+        v-if="showAddForm && isAdmin"
         :id-token="idToken"
         :bottle="editingBottle"
         :mode="editingBottle ? 'edit' : 'create'"
@@ -346,7 +394,7 @@ onUnmounted(() => {
             v-for="bottle in displayedBottles"
             :key="bottle.id"
             :bottle="bottle"
-            :can-edit="isLoggedIn"
+            :can-edit="isAdmin"
             :is-logged-in="isLoggedIn"
             :user-rating="amaroStore.getUserRating(bottle.id)"
             @select="handleSelectBottle"
@@ -370,12 +418,18 @@ onUnmounted(() => {
     <AmaroDetailModal
       v-if="selectedBottle"
       :bottle="selectedBottle"
-      :can-edit="isLoggedIn"
+      :can-edit="isAdmin"
       :is-logged-in="isLoggedIn"
       :id-token="idToken"
       @close="selectedBottle = null"
       @edit="(bottle) => { selectedBottle = null; handleEditBottle(bottle); }"
       @delete="(bottle) => { handleDeleteBottle(bottle); }"
+    />
+
+    <AdminUsersModal
+      v-if="showAdminModal && isAdmin && idToken"
+      :id-token="idToken"
+      @close="showAdminModal = false"
     />
   </div>
 </template>
@@ -485,6 +539,33 @@ onUnmounted(() => {
 
 .toggle-add-btn:hover {
   background: #1d4ed8;
+}
+
+.admin-users-btn {
+  background: #4f46e5;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 0.5rem 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.admin-users-btn:hover {
+  background: #4338ca;
+}
+
+.admin-tag {
+  margin-left: 0.35rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  background: #e0e7ff;
+  color: #3730a3;
+  padding: 0.15rem 0.45rem;
+  border-radius: 9999px;
+  letter-spacing: 0.04em;
 }
 
 .signout-btn {
