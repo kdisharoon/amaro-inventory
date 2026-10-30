@@ -57,3 +57,16 @@ export type CreateAmaroBottlePayload = Omit<AmaroBottle, 'id' | 'dateAdded'> & {
 };
 
 export type UpdateAmaroBottlePayload = Partial<CreateAmaroBottlePayload>;
+
+export interface UserRating {
+  bottleId: string;
+  userId: string;
+  score: number;
+  notes?: string;
+  updatedAt: string;
+}
+
+export interface SetRatingPayload {
+  score: number;
+  notes?: string;
+}

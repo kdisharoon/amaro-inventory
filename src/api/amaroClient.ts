@@ -1,4 +1,10 @@
-import { AmaroBottle, CreateAmaroBottlePayload, UpdateAmaroBottlePayload } from '../types/amaro';
+import {
+  AmaroBottle,
+  CreateAmaroBottlePayload,
+  UpdateAmaroBottlePayload,
+  UserRating,
+  SetRatingPayload,
+} from '../types/amaro';
 
 export interface ImageUploadTarget {
   uploadUrl: string;
@@ -244,6 +250,90 @@ class AmaroApiClient {
     }
 
     return getJsonBody<BottleImageAnalysisResult>(response, 'Failed to analyze bottle image');
+  }
+
+  /**
+   * Fetch all ratings for the currently logged-in user via GET /amaros/ratings
+   */
+  async getUserRatings(idToken: string): Promise<UserRating[]> {
+    const baseUrl = this.getConfiguredBaseUrl();
+
+    const response = await runFetch(`${baseUrl}/amaros/ratings`, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json',
+        'X-Amaro-Id-Token': `Bearer ${idToken}`,
+      },
+    }, 'Failed to fetch user ratings');
+
+    if (!response.ok) {
+      throw await buildApiError(response, 'Failed to fetch user ratings');
+    }
+
+    return getJsonBody<UserRating[]>(response, 'Failed to fetch user ratings');
+  }
+
+  /**
+   * Fetch rating for a specific bottle for the currently logged-in user via GET /amaros/{id}/rating
+   */
+  async getUserRating(idToken: string, bottleId: string): Promise<UserRating | null> {
+    const baseUrl = this.getConfiguredBaseUrl();
+
+    const response = await runFetch(`${baseUrl}/amaros/${encodeURIComponent(bottleId)}/rating`, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json',
+        'X-Amaro-Id-Token': `Bearer ${idToken}`,
+      },
+    }, 'Failed to fetch bottle rating');
+
+    if (!response.ok) {
+      throw await buildApiError(response, 'Failed to fetch bottle rating');
+    }
+
+    return getJsonBody<UserRating | null>(response, 'Failed to fetch bottle rating');
+  }
+
+  /**
+   * Set or update rating for a specific bottle via PUT /amaros/{id}/rating
+   */
+  async setUserRating(idToken: string, bottleId: string, payload: SetRatingPayload): Promise<UserRating> {
+    const baseUrl = this.getConfiguredBaseUrl();
+
+    const response = await runFetch(`${baseUrl}/amaros/${encodeURIComponent(bottleId)}/rating`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'X-Amaro-Id-Token': `Bearer ${idToken}`,
+      },
+      body: JSON.stringify(payload),
+    }, 'Failed to save rating');
+
+    if (!response.ok) {
+      throw await buildApiError(response, 'Failed to save rating');
+    }
+
+    return getJsonBody<UserRating>(response, 'Failed to save rating');
+  }
+
+  /**
+   * Delete rating for a specific bottle via DELETE /amaros/{id}/rating
+   */
+  async deleteUserRating(idToken: string, bottleId: string): Promise<void> {
+    const baseUrl = this.getConfiguredBaseUrl();
+
+    const response = await runFetch(`${baseUrl}/amaros/${encodeURIComponent(bottleId)}/rating`, {
+      method: 'DELETE',
+      headers: {
+        'Accept': 'application/json',
+        'X-Amaro-Id-Token': `Bearer ${idToken}`,
+      },
+    }, 'Failed to delete rating');
+
+    if (!response.ok) {
+      throw await buildApiError(response, 'Failed to delete rating');
+    }
   }
 }
 

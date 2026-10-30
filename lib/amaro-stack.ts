@@ -31,6 +31,21 @@ export class AmaroStack extends cdk.Stack {
       removalPolicy: cdk.RemovalPolicy.RETAIN,
     });
 
+    const ratingsTable = new dynamodb.Table(this, 'AmaroRatingsTableConstruct', {
+      tableName: 'AmaroRatingsTable',
+      partitionKey: {
+        name: 'userId',
+        type: dynamodb.AttributeType.STRING,
+      },
+      sortKey: {
+        name: 'bottleId',
+        type: dynamodb.AttributeType.STRING,
+      },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      pointInTimeRecovery: true,
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+    });
+
     const imageBucket = new s3.Bucket(this, 'BottleImageBucket', {
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       publicReadAccess: false,
@@ -74,6 +89,7 @@ export class AmaroStack extends cdk.Stack {
       memorySize: 1024,
       environment: {
         TABLE_NAME: amaroTable.tableName,
+        RATINGS_TABLE_NAME: ratingsTable.tableName,
         GOOGLE_CLIENT_ID: googleClientId,
         ADMIN_GOOGLE_EMAIL: adminGoogleEmail,
         GEMINI_API_KEY: geminiApiKey,
@@ -86,8 +102,9 @@ export class AmaroStack extends cdk.Stack {
       },
     });
 
-    // Grant Lambda read/write permissions to AmaroTable and S3 image bucket
+    // Grant Lambda read/write permissions to AmaroTable, RatingsTable, and S3 image bucket
     amaroTable.grantReadWriteData(amaroLambda);
+    ratingsTable.grantReadWriteData(amaroLambda);
     imageBucket.grantPut(amaroLambda);
     imageBucket.grantRead(amaroLambda);
 
@@ -114,10 +131,20 @@ export class AmaroStack extends cdk.Stack {
     const analyzeImageResource = amarosResource.addResource('analyze-image');
     analyzeImageResource.addMethod('POST', lambdaIntegration); // POST /amaros/analyze-image
 
+    // User ratings routes: /amaros/ratings
+    const ratingsResource = amarosResource.addResource('ratings');
+    ratingsResource.addMethod('GET', lambdaIntegration); // GET /amaros/ratings
+
     const singleAmaroResource = amarosResource.addResource('{id}');
     singleAmaroResource.addMethod('GET', lambdaIntegration);    // GET /amaros/{id}
     singleAmaroResource.addMethod('PUT', lambdaIntegration);    // PUT /amaros/{id}
     singleAmaroResource.addMethod('DELETE', lambdaIntegration); // DELETE /amaros/{id}
+
+    // Single amaro user rating routes: /amaros/{id}/rating
+    const singleRatingResource = singleAmaroResource.addResource('rating');
+    singleRatingResource.addMethod('GET', lambdaIntegration);    // GET /amaros/{id}/rating
+    singleRatingResource.addMethod('PUT', lambdaIntegration);    // PUT /amaros/{id}/rating
+    singleRatingResource.addMethod('DELETE', lambdaIntegration); // DELETE /amaros/{id}/rating
 
     this.apiUrl = api.url;
 

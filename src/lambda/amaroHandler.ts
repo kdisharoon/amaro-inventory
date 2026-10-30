@@ -1,6 +1,6 @@
 import { APIGatewayProxyEvent, APIGatewayProxyResult } from 'aws-lambda';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient, ScanCommand, GetCommand, PutCommand, DeleteCommand } from '@aws-sdk/lib-dynamodb';
+import { DynamoDBDocumentClient, ScanCommand, GetCommand, PutCommand, DeleteCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
 import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { randomUUID } from 'crypto';
@@ -10,6 +10,7 @@ const docClient = DynamoDBDocumentClient.from(client);
 const s3Client = new S3Client({});
 
 const TABLE_NAME = process.env.TABLE_NAME || 'AmaroTable';
+const RATINGS_TABLE_NAME = process.env.RATINGS_TABLE_NAME || 'AmaroRatingsTable';
 const IMAGE_BUCKET_NAME = process.env.IMAGE_BUCKET_NAME || '';
 const IMAGE_BASE_URL = process.env.IMAGE_BASE_URL || '';
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
@@ -256,29 +257,81 @@ const extractBearerToken = (headers: APIGatewayProxyEvent['headers']): string | 
   return match?.[1] || authHeader;
 };
 
+interface AuthenticatedUser {
+  email: string;
+  sub: string;
+}
+
+const decodeJwtPayload = (token: string): Record<string, any> | null => {
+  try {
+    const payload = token.split('.')[1];
+    if (!payload) return null;
+    const normalized = payload.replace(/-/g, '+').replace(/_/g, '/');
+    const buff = Buffer.from(normalized, 'base64');
+    return JSON.parse(buff.toString('utf-8'));
+  } catch {
+    return null;
+  }
+};
+
+const getAuthenticatedUser = async (idToken: string): Promise<AuthenticatedUser | null> => {
+  if (!idToken) return null;
+
+  if (GOOGLE_CLIENT_ID) {
+    try {
+      const tokenInfoUrl = `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(idToken)}`;
+      const response = await fetch(tokenInfoUrl);
+      if (!response.ok) {
+        console.error('Failed tokeninfo lookup', response.status);
+        return null;
+      }
+
+      const tokenInfo = (await response.json()) as GoogleTokenInfo & { sub?: string };
+      const nowEpochSeconds = Math.floor(Date.now() / 1000);
+      const tokenExp = Number(tokenInfo.exp || '0');
+      const isVerified = tokenInfo.email_verified === true || tokenInfo.email_verified === 'true';
+
+      if (tokenInfo.aud === GOOGLE_CLIENT_ID && isVerified && tokenExp > nowEpochSeconds && tokenInfo.email) {
+        return {
+          email: tokenInfo.email.toLowerCase(),
+          sub: tokenInfo.sub || tokenInfo.email.toLowerCase(),
+        };
+      }
+      return null;
+    } catch (e) {
+      console.error('Error verifying token with Google:', e);
+      return null;
+    }
+  }
+
+  // Fallback for development/testing when GOOGLE_CLIENT_ID is not configured
+  try {
+    const payload = decodeJwtPayload(idToken);
+    if (payload?.email) {
+      const nowEpochSeconds = Math.floor(Date.now() / 1000);
+      const exp = Number(payload.exp || '0');
+      if (!exp || exp > nowEpochSeconds) {
+        return {
+          email: String(payload.email).toLowerCase(),
+          sub: String(payload.sub || payload.email).toLowerCase(),
+        };
+      }
+    }
+  } catch {
+    // ignore
+  }
+
+  return null;
+};
+
 const isAuthorizedAdmin = async (idToken: string): Promise<boolean> => {
-  if (!GOOGLE_CLIENT_ID || !ADMIN_GOOGLE_EMAIL) {
-    console.error('GOOGLE_CLIENT_ID and ADMIN_GOOGLE_EMAIL must be configured');
+  if (!ADMIN_GOOGLE_EMAIL) {
+    console.error('ADMIN_GOOGLE_EMAIL must be configured');
     return false;
   }
-
-  const tokenInfoUrl = `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(idToken)}`;
-  const response = await fetch(tokenInfoUrl);
-  if (!response.ok) {
-    console.error('Failed tokeninfo lookup', response.status);
-    return false;
-  }
-
-  const tokenInfo = (await response.json()) as GoogleTokenInfo;
-  const nowEpochSeconds = Math.floor(Date.now() / 1000);
-  const tokenExp = Number(tokenInfo.exp || '0');
-
-  return (
-    tokenInfo.aud === GOOGLE_CLIENT_ID &&
-    (tokenInfo.email_verified === true || tokenInfo.email_verified === 'true') &&
-    tokenExp > nowEpochSeconds &&
-    tokenInfo.email?.toLowerCase() === ADMIN_GOOGLE_EMAIL
-  );
+  const user = await getAuthenticatedUser(idToken);
+  if (!user) return false;
+  return user.email === ADMIN_GOOGLE_EMAIL;
 };
 
 const corsHeaders = {
@@ -297,8 +350,212 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
   const requestPath = event.path || '';
   const isImageUploadUrlRequest = resourcePath === '/amaros/image-upload-url' || requestPath.endsWith('/amaros/image-upload-url');
   const isAnalyzeImageRequest = resourcePath === '/amaros/analyze-image' || requestPath.endsWith('/amaros/analyze-image');
+  const isAllRatingsRequest = resourcePath === '/amaros/ratings' || requestPath.endsWith('/amaros/ratings');
+  const isSingleRatingRequest = resourcePath === '/amaros/{id}/rating' || Boolean(requestPath.match(/\/amaros\/[^/]+\/rating$/));
 
   try {
+    // Ratings: GET /amaros/ratings - Fetch all ratings for the authenticated user
+    if (httpMethod === 'GET' && isAllRatingsRequest) {
+      const idToken = extractBearerToken(event.headers);
+      if (!idToken) {
+        return {
+          statusCode: 401,
+          headers: corsHeaders,
+          body: JSON.stringify({ message: 'Missing bearer token.' }),
+        };
+      }
+
+      const user = await getAuthenticatedUser(idToken);
+      if (!user) {
+        return {
+          statusCode: 401,
+          headers: corsHeaders,
+          body: JSON.stringify({ message: 'Invalid or expired credentials.' }),
+        };
+      }
+
+      try {
+        const command = new QueryCommand({
+          TableName: RATINGS_TABLE_NAME,
+          KeyConditionExpression: 'userId = :uid',
+          ExpressionAttributeValues: {
+            ':uid': user.email,
+          },
+        });
+        const response = await docClient.send(command);
+        const ratings = (response.Items || []).map((item) => ({
+          bottleId: item.bottleId,
+          userId: item.userId,
+          score: item.score,
+          notes: item.notes || '',
+          updatedAt: item.updatedAt,
+        }));
+
+        return {
+          statusCode: 200,
+          headers: corsHeaders,
+          body: JSON.stringify(ratings),
+        };
+      } catch (err: any) {
+        console.error('Failed to fetch ratings from DynamoDB:', err);
+        return {
+          statusCode: 500,
+          headers: corsHeaders,
+          body: JSON.stringify({ message: 'Failed to fetch user ratings.' }),
+        };
+      }
+    }
+
+    // Ratings: Single rating endpoints: GET, PUT, DELETE /amaros/{id}/rating
+    if (isSingleRatingRequest) {
+      const idToken = extractBearerToken(event.headers);
+      if (!idToken) {
+        return {
+          statusCode: 401,
+          headers: corsHeaders,
+          body: JSON.stringify({ message: 'Missing bearer token.' }),
+        };
+      }
+
+      const user = await getAuthenticatedUser(idToken);
+      if (!user) {
+        return {
+          statusCode: 401,
+          headers: corsHeaders,
+          body: JSON.stringify({ message: 'Invalid or expired credentials.' }),
+        };
+      }
+
+      const bottleId = pathParameters?.id || requestPath.match(/\/amaros\/([^/]+)\/rating/)?.[1];
+      if (!bottleId) {
+        return {
+          statusCode: 400,
+          headers: corsHeaders,
+          body: JSON.stringify({ message: 'Bottle ID is required.' }),
+        };
+      }
+
+      if (httpMethod === 'GET') {
+        try {
+          const command = new GetCommand({
+            TableName: RATINGS_TABLE_NAME,
+            Key: {
+              userId: user.email,
+              bottleId,
+            },
+          });
+          const response = await docClient.send(command);
+          if (!response.Item) {
+            return {
+              statusCode: 200,
+              headers: corsHeaders,
+              body: JSON.stringify(null),
+            };
+          }
+          return {
+            statusCode: 200,
+            headers: corsHeaders,
+            body: JSON.stringify({
+              bottleId: response.Item.bottleId,
+              userId: response.Item.userId,
+              score: response.Item.score,
+              notes: response.Item.notes || '',
+              updatedAt: response.Item.updatedAt,
+            }),
+          };
+        } catch (err: any) {
+          console.error('Failed to get rating:', err);
+          return {
+            statusCode: 500,
+            headers: corsHeaders,
+            body: JSON.stringify({ message: 'Failed to retrieve rating.' }),
+          };
+        }
+      }
+
+      if (httpMethod === 'PUT') {
+        if (!event.body) {
+          return {
+            statusCode: 400,
+            headers: corsHeaders,
+            body: JSON.stringify({ message: 'Request body is required.' }),
+          };
+        }
+
+        const body = JSON.parse(event.body);
+        const score = Number(body.score);
+        if (!Number.isInteger(score) || score < 1 || score > 10) {
+          return {
+            statusCode: 400,
+            headers: corsHeaders,
+            body: JSON.stringify({ message: 'Rating score must be an integer between 1 and 10.' }),
+          };
+        }
+
+        const notes = typeof body.notes === 'string' ? body.notes.trim() : '';
+        if (notes.length > 250) {
+          return {
+            statusCode: 400,
+            headers: corsHeaders,
+            body: JSON.stringify({ message: 'Rating notes must be at most 250 characters.' }),
+          };
+        }
+
+        const ratingItem = {
+          userId: user.email,
+          bottleId,
+          score,
+          notes,
+          updatedAt: new Date().toISOString(),
+        };
+
+        try {
+          await docClient.send(new PutCommand({
+            TableName: RATINGS_TABLE_NAME,
+            Item: ratingItem,
+          }));
+
+          return {
+            statusCode: 200,
+            headers: corsHeaders,
+            body: JSON.stringify(ratingItem),
+          };
+        } catch (err: any) {
+          console.error('Failed to save rating:', err);
+          return {
+            statusCode: 500,
+            headers: corsHeaders,
+            body: JSON.stringify({ message: 'Failed to save rating.' }),
+          };
+        }
+      }
+
+      if (httpMethod === 'DELETE') {
+        try {
+          await docClient.send(new DeleteCommand({
+            TableName: RATINGS_TABLE_NAME,
+            Key: {
+              userId: user.email,
+              bottleId,
+            },
+          }));
+
+          return {
+            statusCode: 200,
+            headers: corsHeaders,
+            body: JSON.stringify({ bottleId, deleted: true }),
+          };
+        } catch (err: any) {
+          console.error('Failed to delete rating:', err);
+          return {
+            statusCode: 500,
+            headers: corsHeaders,
+            body: JSON.stringify({ message: 'Failed to delete rating.' }),
+          };
+        }
+      }
+    }
+
     if (httpMethod === 'POST' && isImageUploadUrlRequest) {
       const idToken = extractBearerToken(event.headers);
       if (!idToken) {

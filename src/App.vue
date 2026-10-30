@@ -89,6 +89,7 @@ const handleGoogleCredential = (response: { credential?: string }) => {
   authMessage.value = '';
   localStorage.setItem('amaro_google_id_token', response.credential);
   localStorage.setItem('amaro_google_email', email);
+  amaroStore.fetchUserRatings(response.credential);
 };
 
 const initializeGoogleIdentity = () => {
@@ -223,6 +224,7 @@ const signOut = () => {
   authMessage.value = '';
   localStorage.removeItem('amaro_google_id_token');
   localStorage.removeItem('amaro_google_email');
+  amaroStore.clearUserRatings();
   window.google?.accounts?.id?.disableAutoSelect?.();
 };
 
@@ -247,6 +249,8 @@ watch(sentinelEl, (newEl) => {
 onMounted(() => {
   if (idToken.value && !isTokenFresh(idToken.value)) {
     signOut();
+  } else if (idToken.value && isTokenFresh(idToken.value)) {
+    amaroStore.fetchUserRatings(idToken.value);
   }
   amaroStore.fetchBottles();
   waitForGoogleAndRender();
@@ -343,6 +347,8 @@ onUnmounted(() => {
             :key="bottle.id"
             :bottle="bottle"
             :can-edit="isLoggedIn"
+            :is-logged-in="isLoggedIn"
+            :user-rating="amaroStore.getUserRating(bottle.id)"
             @select="handleSelectBottle"
             @edit="handleEditBottle"
             @delete="handleDeleteBottle"
@@ -365,6 +371,8 @@ onUnmounted(() => {
       v-if="selectedBottle"
       :bottle="selectedBottle"
       :can-edit="isLoggedIn"
+      :is-logged-in="isLoggedIn"
+      :id-token="idToken"
       @close="selectedBottle = null"
       @edit="(bottle) => { selectedBottle = null; handleEditBottle(bottle); }"
       @delete="(bottle) => { handleDeleteBottle(bottle); }"

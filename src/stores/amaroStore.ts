@@ -1,5 +1,12 @@
 import { defineStore } from 'pinia';
-import { AmaroBottle, BottleStatus, CreateAmaroBottlePayload, UpdateAmaroBottlePayload } from '../types/amaro';
+import {
+  AmaroBottle,
+  BottleStatus,
+  CreateAmaroBottlePayload,
+  UpdateAmaroBottlePayload,
+  UserRating,
+  SetRatingPayload,
+} from '../types/amaro';
 import { amaroApiClient } from '../api/amaroClient';
 
 function shuffleBottles<T>(items: T[]): T[] {
@@ -50,6 +57,9 @@ export const useAmaroStore = defineStore('amaro', {
     bottles: [] as AmaroBottle[],
     isLoading: false as boolean,
     error: null as string | null,
+    userRatings: {} as Record<string, UserRating>,
+    ratingsLoading: false as boolean,
+    ratingsError: null as string | null,
     filters: {
       searchQuery: '',
       status: 'all',
@@ -102,6 +112,10 @@ export const useAmaroStore = defineStore('amaro', {
     availableRegions(state): string[] {
       const regions = state.bottles.map((b) => b.region).filter((r): r is string => Boolean(r));
       return Array.from(new Set(regions)).sort();
+    },
+
+    getUserRating: (state) => (bottleId: string): UserRating | undefined => {
+      return state.userRatings[bottleId];
     },
   },
 
@@ -190,6 +204,70 @@ export const useAmaroStore = defineStore('amaro', {
         searchQuery: '',
         status: 'all',
       };
+    },
+
+    async fetchUserRatings(idToken: string): Promise<void> {
+      if (!idToken) return;
+      this.ratingsLoading = true;
+      this.ratingsError = null;
+      try {
+        const ratings = await amaroApiClient.getUserRatings(idToken);
+        const map: Record<string, UserRating> = {};
+        for (const rating of ratings) {
+          map[rating.bottleId] = rating;
+        }
+        this.userRatings = map;
+      } catch (err: any) {
+        this.ratingsError = err?.message || 'Failed to fetch user ratings.';
+        console.error('Error in amaroStore.fetchUserRatings:', err);
+      } finally {
+        this.ratingsLoading = false;
+      }
+    },
+
+    async setUserRating(idToken: string, bottleId: string, payload: SetRatingPayload): Promise<UserRating | null> {
+      if (!idToken) return null;
+      this.ratingsLoading = true;
+      this.ratingsError = null;
+      try {
+        const saved = await amaroApiClient.setUserRating(idToken, bottleId, payload);
+        this.userRatings = {
+          ...this.userRatings,
+          [bottleId]: saved,
+        };
+        return saved;
+      } catch (err: any) {
+        this.ratingsError = err?.message || 'Failed to save rating.';
+        console.error('Error in amaroStore.setUserRating:', err);
+        throw err;
+      } finally {
+        this.ratingsLoading = false;
+      }
+    },
+
+    async deleteUserRating(idToken: string, bottleId: string): Promise<boolean> {
+      if (!idToken) return false;
+      this.ratingsLoading = true;
+      this.ratingsError = null;
+      try {
+        await amaroApiClient.deleteUserRating(idToken, bottleId);
+        const updated = { ...this.userRatings };
+        delete updated[bottleId];
+        this.userRatings = updated;
+        return true;
+      } catch (err: any) {
+        this.ratingsError = err?.message || 'Failed to delete rating.';
+        console.error('Error in amaroStore.deleteUserRating:', err);
+        throw err;
+      } finally {
+        this.ratingsLoading = false;
+      }
+    },
+
+    clearUserRatings(): void {
+      this.userRatings = {};
+      this.ratingsError = null;
+      this.ratingsLoading = false;
     },
   },
 });

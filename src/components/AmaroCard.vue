@@ -1,13 +1,17 @@
 <script setup lang="ts">
-import { AmaroBottle } from '../types/amaro';
+import type { AmaroBottle, UserRating } from '../types/amaro';
 
 const props = withDefaults(
   defineProps<{
     bottle: AmaroBottle;
     canEdit?: boolean;
+    isLoggedIn?: boolean;
+    userRating?: UserRating | null;
   }>(),
   {
     canEdit: false,
+    isLoggedIn: false,
+    userRating: null,
   }
 );
 
@@ -79,8 +83,8 @@ const handleDelete = (event: MouseEvent) => {
           {{ bottle.abv }}% ABV
         </span>
 
-        <span v-if="bottle.rating" class="rating">
-          <span class="star">★</span> {{ bottle.rating }}/5
+        <span v-if="isLoggedIn && userRating" class="user-rating-badge" title="Your Rating">
+          <span class="star">★</span> {{ userRating.score }}/10
         </span>
       </div>
 
@@ -222,10 +226,21 @@ const handleDelete = (event: MouseEvent) => {
   white-space: nowrap;
 }
 
-.rating {
-  font-size: 0.78rem;
-  font-weight: 600;
-  color: #d69e2e;
+.user-rating-badge {
+  font-size: 0.76rem;
+  font-weight: 700;
+  color: #92400e;
+  background-color: #fef3c7;
+  border: 1px solid #fde68a;
+  padding: 0.12rem 0.45rem;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+}
+
+.user-rating-badge .star {
+  color: #d97706;
 }
 
 .card-actions {
