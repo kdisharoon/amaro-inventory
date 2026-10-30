@@ -11,11 +11,8 @@ export interface BottleImageAnalysisResult {
   region?: string;
   abv?: number;
   description?: string;
-  flavorNotes?: string[];
   descriptionConfidence?: 'low' | 'medium' | 'high';
-  flavorNotesConfidence?: 'low' | 'medium' | 'high';
   descriptionNeedsReview?: boolean;
-  flavorNotesNeedsReview?: boolean;
 }
 
 declare global {

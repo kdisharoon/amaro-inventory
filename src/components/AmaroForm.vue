@@ -29,7 +29,6 @@ const producer = ref('');
 const region = ref('');
 const abv = ref<number | null>(null);
 const description = ref('');
-const flavorNotes = ref('');
 const status = ref<'unopened' | 'opened' | 'finished'>('unopened');
 
 const selectedImageFile = ref<File | null>(null);
@@ -40,9 +39,7 @@ const isAnalyzingImage = ref(false);
 const analysisMessage = ref('');
 const analysisError = ref<string | null>(null);
 const descriptionConfidence = ref<'low' | 'medium' | 'high' | null>(null);
-const flavorNotesConfidence = ref<'low' | 'medium' | 'high' | null>(null);
 const descriptionNeedsReview = ref(false);
-const flavorNotesNeedsReview = ref(false);
 
 const isSubmitting = ref(false);
 const error = ref<string | null>(null);
@@ -117,9 +114,7 @@ const compressImageToFile = async (file: File): Promise<File> => {
 const resetAnalysisSignals = () => {
   analysisError.value = null;
   descriptionConfidence.value = null;
-  flavorNotesConfidence.value = null;
   descriptionNeedsReview.value = false;
-  flavorNotesNeedsReview.value = false;
 };
 
 const applyAnalysis = (analysis: BottleImageAnalysisResult) => {
@@ -128,14 +123,9 @@ const applyAnalysis = (analysis: BottleImageAnalysisResult) => {
   if (analysis.region) region.value = analysis.region;
   if (typeof analysis.abv === 'number') abv.value = analysis.abv;
   if (analysis.description) description.value = analysis.description;
-  if (Array.isArray(analysis.flavorNotes) && analysis.flavorNotes.length > 0) {
-    flavorNotes.value = analysis.flavorNotes.join(', ');
-  }
 
   descriptionConfidence.value = analysis.descriptionConfidence || null;
-  flavorNotesConfidence.value = analysis.flavorNotesConfidence || null;
   descriptionNeedsReview.value = Boolean(analysis.descriptionNeedsReview);
-  flavorNotesNeedsReview.value = Boolean(analysis.flavorNotesNeedsReview);
 };
 
 const uploadSelectedImage = async (): Promise<string> => {
@@ -215,7 +205,6 @@ const hydrateFormFromBottle = (bottle: AmaroBottle | null | undefined) => {
   region.value = bottle.region || '';
   abv.value = bottle.abv ?? null;
   description.value = bottle.description || '';
-  flavorNotes.value = bottle.flavorNotes?.join(', ') || '';
   status.value = bottle.status || 'unopened';
   uploadedImageUrl.value = bottle.imageUrl || '';
   selectedImagePreviewUrl.value = bottle.imageUrl || '';
@@ -230,7 +219,6 @@ const resetForm = () => {
   region.value = '';
   abv.value = null;
   description.value = '';
-  flavorNotes.value = '';
   status.value = 'unopened';
   selectedImageFile.value = null;
   selectedImagePreviewUrl.value = '';
@@ -272,10 +260,6 @@ const submit = async () => {
       region: region.value || undefined,
       abv: typeof abv.value === 'number' && !isNaN(abv.value) ? abv.value : undefined,
       description: description.value,
-      flavorNotes: flavorNotes.value
-        .split(',')
-        .map((s) => s.trim())
-        .filter(Boolean),
       status: status.value,
       imageUrl: uploadedImageUrl.value || props.bottle?.imageUrl || undefined,
     };
@@ -319,12 +303,6 @@ const clearDescription = () => {
   description.value = '';
   descriptionConfidence.value = null;
   descriptionNeedsReview.value = false;
-};
-
-const clearFlavorNotes = () => {
-  flavorNotes.value = '';
-  flavorNotesConfidence.value = null;
-  flavorNotesNeedsReview.value = false;
 };
 </script>
 
@@ -381,16 +359,6 @@ const clearFlavorNotes = () => {
         <button type="button" class="clear-text-btn" @click="clearDescription">Clear</button>
       </div>
       <textarea id="description-input" v-model="description" placeholder="Description (optional)"></textarea>
-    </div>
-
-    <div class="field-group">
-      <div class="field-header">
-        <label for="flavor-notes-input">Flavor notes</label>
-        <span v-if="flavorNotesConfidence" :class="['confidence-badge', flavorNotesConfidence]">{{ flavorNotesConfidence }} confidence</span>
-        <span v-if="flavorNotesNeedsReview" class="review-flag">Needs review</span>
-        <button type="button" class="clear-text-btn" @click="clearFlavorNotes">Clear</button>
-      </div>
-      <input id="flavor-notes-input" v-model="flavorNotes" placeholder="Flavor notes (comma-separated)" />
     </div>
 
     <div class="row action-row">

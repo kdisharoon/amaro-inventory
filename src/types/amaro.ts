@@ -45,7 +45,6 @@ export interface AmaroBottle {
   region?: Region | ItalianRegion | string;
   abv?: number;
   description: string;
-  flavorNotes: string[];
   status: BottleStatus;
   imageUrl?: string;
   rating?: number;

@@ -12,7 +12,6 @@ export interface AmaroBottle {
   region: string;
   abv: number;
   description?: string;
-  flavorNotes: string[];
   rating?: number;
   dateAdded: string;
 }
@@ -50,7 +49,6 @@ export class AmaroRepository {
       region: item.region,
       abv: item.abv,
       description: item.description,
-      flavorNotes: item.flavorNotes || [],
       rating: item.rating,
       dateAdded: item.dateAdded,
     }));

@@ -104,15 +104,6 @@ onUnmounted(() => {
             <p class="description-text">{{ bottle.description }}</p>
           </section>
 
-          <section v-if="bottle.flavorNotes && bottle.flavorNotes.length > 0" class="detail-section">
-            <h4 class="section-title">Tasting Notes &amp; Botanicals</h4>
-            <div class="flavor-notes">
-              <span v-for="note in bottle.flavorNotes" :key="note" class="note-tag">
-                {{ note }}
-              </span>
-            </div>
-          </section>
-
           <section v-if="bottle.dateAdded" class="date-added">
             Added to collection: {{ formatDate(bottle.dateAdded) }}
           </section>
@@ -332,21 +323,6 @@ onUnmounted(() => {
   font-size: 0.92rem;
   line-height: 1.55;
   color: #334155;
-}
-
-.flavor-notes {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-}
-
-.note-tag {
-  background-color: #f1f5f9;
-  border: 1px solid #e2e8f0;
-  color: #334155;
-  font-size: 0.8rem;
-  padding: 0.2rem 0.6rem;
-  border-radius: 6px;
 }
 
 .date-added {

@@ -58,7 +58,6 @@ export interface AmaroItem {
   region?: string;
   abv?: number;
   description: string;
-  flavorNotes: string[];
   status: 'unopened' | 'opened' | 'finished';
   imageUrl?: string;
   rating?: number;
@@ -78,11 +77,8 @@ export interface BottleAnalysisResult {
   region?: string;
   abv?: number;
   description?: string;
-  flavorNotes?: string[];
   descriptionConfidence: 'low' | 'medium' | 'high';
-  flavorNotesConfidence: 'low' | 'medium' | 'high';
   descriptionNeedsReview: boolean;
-  flavorNotesNeedsReview: boolean;
 }
 
 const sanitizeExtension = (contentType: string, fileName?: string): string => {
@@ -128,19 +124,16 @@ const callGemini = async (base64Image: string, mimeType: string): Promise<any> =
   }
 
   const prompt = `You are an expert sommelier and spirits specialist cataloging an Amaro and herbal liqueur collection.
-Analyze this bottle image and identify the exact amaro bottle, including producer details, regional origin, alcohol percentage (ABV), tasting notes, and botanicals.
+Analyze this bottle image and identify the exact amaro bottle, including producer details, regional origin, and alcohol percentage (ABV).
 
 Extract and return a JSON object with EXACTLY the following fields:
 - "name": (string) The specific name of the amaro (e.g., "Amaro Averna", "Amaro Lucano", "Amaro Nonino Quintessentia", "Cynar", "Braulio", "Jägermeister", "Chartreuse").
 - "producer": (string) The company or distillery that produces it (e.g., "Fratelli Averna", "Lucano 1894", "Nonino Distillatori", "Campari Group", "Peloni").
 - "region": (string) If Italian, MUST be one of the official 20 Italian regions spelled in Italian: ["Abruzzo", "Basilicata", "Calabria", "Campania", "Emilia-Romagna", "Friuli-Venezia Giulia", "Lazio", "Liguria", "Lombardia", "Marche", "Molise", "Piemonte", "Puglia", "Sardegna", "Sicilia", "Toscana", "Trentino-Alto Adige", "Umbria", "Valle d'Aosta", "Veneto"]. If non-Italian, use the country name such as "Germany", "France", or "Greece". If unknown, leave empty or omit.
 - "abv": (number) The numerical ABV percentage (e.g., 29, 30, 16.5). If unknown, omit.
-- "description": (string) A concise, well-written English description (2-4 sentences) summarizing the amaro's heritage, key botanical profile, production style, and taste characteristics.
-- "flavorNotes": (array of strings) 3 to 7 distinctive flavor/botanical keywords in English (e.g., ["citrus", "gentian", "rhubarb", "caramel", "mint"]).
+- "description": (string) A concise, well-written English description (2-4 sentences) summarizing the amaro's heritage, production style, and taste characteristics.
 - "descriptionConfidence": (string) "high", "medium", or "low".
-- "flavorNotesConfidence": (string) "high", "medium", or "low".
-- "descriptionNeedsReview": (boolean) true if confidence is medium or low, otherwise false.
-- "flavorNotesNeedsReview": (boolean) true if confidence is medium or low, otherwise false.`;
+- "descriptionNeedsReview": (boolean) true if confidence is medium or low, otherwise false.`;
 
   const requestBody = {
     contents: [
@@ -241,16 +234,8 @@ const analyzeBottleImage = async (imageUrl: string): Promise<BottleAnalysisResul
   const abv = typeof parsed.abv === 'number' && !isNaN(parsed.abv) ? parsed.abv : undefined;
   const description = typeof parsed.description === 'string' && parsed.description.trim() ? parsed.description.trim() : undefined;
 
-  const flavorNotes = Array.isArray(parsed.flavorNotes)
-    ? parsed.flavorNotes
-        .filter((n: any) => typeof n === 'string' && n.trim().length > 0)
-        .map((n: string) => n.trim())
-    : [];
-
   const descConf: BottleAnalysisResult['descriptionConfidence'] =
     ['low', 'medium', 'high'].includes(parsed.descriptionConfidence) ? parsed.descriptionConfidence : 'high';
-  const flavConf: BottleAnalysisResult['flavorNotesConfidence'] =
-    ['low', 'medium', 'high'].includes(parsed.flavorNotesConfidence) ? parsed.flavorNotesConfidence : 'high';
 
   return {
     name,
@@ -258,11 +243,8 @@ const analyzeBottleImage = async (imageUrl: string): Promise<BottleAnalysisResul
     region,
     abv,
     description,
-    flavorNotes,
     descriptionConfidence: descConf,
-    flavorNotesConfidence: flavConf,
     descriptionNeedsReview: parsed.descriptionNeedsReview ?? (descConf !== 'high'),
-    flavorNotesNeedsReview: parsed.flavorNotesNeedsReview ?? (flavConf !== 'high'),
   };
 };
 
@@ -491,15 +473,15 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
         };
       }
 
+      const { flavorNotes: _removedFlavorNotes, ...existingFields } = existingBottle.Item;
       const updatedItem: AmaroItem = {
-        ...existingBottle.Item,
+        ...existingFields,
         id: pathParameters.id,
         name: body.name,
         producer: body.producer || existingBottle.Item.producer || 'Unknown',
         region: typeof body.region === 'string' ? body.region : (existingBottle.Item.region || ''),
         abv: typeof body.abv === 'number' && !isNaN(body.abv) ? body.abv : (body.abv === null ? undefined : existingBottle.Item.abv),
         description: typeof body.description === 'string' ? body.description : existingBottle.Item.description || '',
-        flavorNotes: Array.isArray(body.flavorNotes) ? body.flavorNotes : existingBottle.Item.flavorNotes || [],
         status: body.status || existingBottle.Item.status || 'unopened',
         imageUrl: typeof body.imageUrl === 'string' && body.imageUrl.trim() !== ''
           ? body.imageUrl.trim()
@@ -612,7 +594,6 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
         region: typeof body.region === 'string' ? body.region : '',
         abv: typeof body.abv === 'number' && !isNaN(body.abv) ? body.abv : undefined,
         description: body.description || '',
-        flavorNotes: Array.isArray(body.flavorNotes) ? body.flavorNotes : [],
         status: body.status || 'unopened',
         imageUrl: typeof body.imageUrl === 'string' && body.imageUrl.trim() !== '' ? body.imageUrl.trim() : undefined,
         rating: body.rating ?? 0,

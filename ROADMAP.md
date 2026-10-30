@@ -45,11 +45,11 @@ Once the CDK stack deploys (or using your existing CloudFront distribution domai
 
 - **Remove Sweetness Level**:
   - Evaluate removing the `sweetnessLevel` field across the data model, UI filters, card badges, and forms.
-  - Simplify the taxonomy since sweetness is subjective and often captured adequately within tasting notes and botanical descriptions.
+  - Simplify the taxonomy since sweetness is subjective and often captured adequately within the description.
 
 - **Compact Amaro Cards with Detail Modal**:
   - Implement a more compact card grid (photo, name, producer, region, ABV, open status) to fit more bottles on screen.
-  - Clicking a card opens a full-screen or popup modal showing high-res images, full tasting notes, botanical lists, description, and history.
+  - Clicking a card opens a full-screen or popup modal showing high-res images, description, and bottle metadata.
 
 - **Multi-User Tasting & Sample Tracking**:
   - Expand Google OAuth authentication so any visitor can log in with their Google account.

@@ -67,17 +67,14 @@ export const useAmaroStore = defineStore('amaro', {
           }
         }
 
-        // Search filter (matches name, producer, region, or flavor notes)
+        // Search filter (matches name, producer, or region)
         if (state.filters.searchQuery.trim() !== '') {
           const query = state.filters.searchQuery.toLowerCase();
           const matchesName = bottle.name.toLowerCase().includes(query);
           const matchesProducer = bottle.producer.toLowerCase().includes(query);
           const matchesRegion = (bottle.region || '').toLowerCase().includes(query);
-          const matchesNotes = bottle.flavorNotes.some((note) =>
-            note.toLowerCase().includes(query)
-          );
 
-          if (!matchesName && !matchesProducer && !matchesRegion && !matchesNotes) {
+          if (!matchesName && !matchesProducer && !matchesRegion) {
             return false;
           }
         }

@@ -39,7 +39,7 @@ const pickRandomOpenedBottle = () => {
       <div class="search-group">
         <input
           type="text"
-          placeholder="Search by name, producer, region, or botanicals..."
+          placeholder="Search by name, producer, or region..."
           :value="amaroStore.filters.searchQuery"
           @input="onSearchInput"
           class="search-input"
